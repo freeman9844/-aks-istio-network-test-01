@@ -1,0 +1,110 @@
+[
+  {
+    "Id": "T1",
+    "From": "VM vm-appgw-sim",
+    "To": "10.50.1.10:80 Host web-a.test",
+    "Expect": "200",
+    "Observed": "200",
+    "Verdict": "PASS",
+    "Note": ""
+  },
+  {
+    "Id": "T2",
+    "From": "VM vm-other",
+    "To": "10.50.1.10:80 Host web-a.test",
+    "Expect": "blocked(000)",
+    "Observed": "000",
+    "Verdict": "PASS",
+    "Note": ""
+  },
+  {
+    "Id": "T2c",
+    "From": "VM vm-other",
+    "To": "staksnetval<hash>.blob.core.windows.net:443 (TLS)",
+    "Expect": "연결 성공(≠000)",
+    "Observed": "400",
+    "Verdict": "PASS",
+    "Note": ""
+  },
+  {
+    "Id": "T3",
+    "From": "VM vm-appgw-sim",
+    "To": "10.50.1.10:80 (T1 재사용)",
+    "Expect": "200",
+    "Observed": "200",
+    "Verdict": "PASS",
+    "Note": "nsg-ingress Deny 존재 상태에서 T1 결과 재사용"
+  },
+  {
+    "Id": "T4",
+    "From": "web/web-a",
+    "To": "bff-a:8080",
+    "Expect": "200",
+    "Observed": "200",
+    "Verdict": "PASS",
+    "Note": ""
+  },
+  {
+    "Id": "T5",
+    "From": "web/web-a",
+    "To": "bff-b:8080",
+    "Expect": "403",
+    "Observed": "403",
+    "Verdict": "PASS",
+    "Note": ""
+  },
+  {
+    "Id": "T6",
+    "From": "web/web-b",
+    "To": "bff-b:8080",
+    "Expect": "200",
+    "Observed": "200",
+    "Verdict": "PASS",
+    "Note": ""
+  },
+  {
+    "Id": "T7",
+    "From": "web/web-b",
+    "To": "bff-a:8080",
+    "Expect": "403",
+    "Observed": "403",
+    "Verdict": "PASS",
+    "Note": ""
+  },
+  {
+    "Id": "T8",
+    "From": "nomesh/probe",
+    "To": "bff-a:8080",
+    "Expect": "blocked(000)",
+    "Observed": "000",
+    "Verdict": "PASS",
+    "Note": ""
+  },
+  {
+    "Id": "T9",
+    "From": "web/web-a",
+    "To": "web-b:8080 (Ingress 우회)",
+    "Expect": "403",
+    "Observed": "403",
+    "Verdict": "PASS",
+    "Note": ""
+  },
+  {
+    "Id": "T10",
+    "From": "web/web-a",
+    "To": "staksnetval<hash>.blob.core.windows.net (10.50.2.4)",
+    "Expect": "TLS 연결 실패(000)",
+    "Observed": "400",
+    "Verdict": "FAIL",
+    "Note": "DNS=10.50.2.4"
+  },
+  {
+    "Id": "T11",
+    "From": "app/bff-a",
+    "To": "staksnetval<hash>.blob.core.windows.net (10.50.2.4)",
+    "Expect": "TLS 연결 성공(≠000)",
+    "Observed": "400",
+    "Verdict": "PASS",
+    "Note": "DNS=10.50.2.4"
+  }
+]

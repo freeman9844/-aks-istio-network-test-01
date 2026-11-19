@@ -1,0 +1,16 @@
+# 검증 결과 20261119-183316
+
+| Id | From | To | Expect | Observed | Verdict | Note |
+|---|---|---|---|---|---|---|
+| T1 | VM vm-appgw-sim | 10.50.1.10:80 Host web-a.test | 200 | 200 | PASS |  |
+| T2 | VM vm-other | 10.50.1.10:80 Host web-a.test | blocked(000) | 000 | PASS |  |
+| T2c | VM vm-other | staksnetval<hash>.blob.core.windows.net:443 (TLS) | 연결 성공(≠000) | 400 | PASS |  |
+| T3 | VM vm-appgw-sim | 10.50.1.10:80 (T1 재사용) | 200 | 200 | PASS | nsg-ingress Deny 존재 상태에서 T1 결과 재사용 |
+| T4 | web/web-a | bff-a:8080 | 200 | 200 | PASS |  |
+| T5 | web/web-a | bff-b:8080 | 403 | 403 | PASS |  |
+| T6 | web/web-b | bff-b:8080 | 200 | 200 | PASS |  |
+| T7 | web/web-b | bff-a:8080 | 403 | 403 | PASS |  |
+| T8 | nomesh/probe | bff-a:8080 | blocked(000) | 000 | PASS |  |
+| T9 | web/web-a | web-b:8080 (Ingress 우회) | 403 | 403 | PASS |  |
+| T10 | web/web-a | staksnetval<hash>.blob.core.windows.net (10.50.2.4) | TLS 연결 실패(000) | 400 | FAIL | DNS=10.50.2.4 |
+| T11 | app/bff-a | staksnetval<hash>.blob.core.windows.net (10.50.2.4) | TLS 연결 성공(≠000) | 400 | PASS | DNS=10.50.2.4 |

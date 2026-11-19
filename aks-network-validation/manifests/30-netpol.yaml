@@ -1,0 +1,18 @@
+# web 네임스페이스에서 PE 서브넷(snet-pe)으로 나가는 트래픽만 차단. 클러스터 내부(DNS 포함)는 허용
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-web-to-data
+  namespace: web
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector: {}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.50.2.0/24

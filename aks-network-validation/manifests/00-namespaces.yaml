@@ -1,0 +1,20 @@
+# web·app 의 istio.io/rev 레이블은 02-apply.ps1 이 설치된 리비전으로 붙인다
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: web
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nomesh
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: scale

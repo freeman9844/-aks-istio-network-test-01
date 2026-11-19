@@ -1,0 +1,97 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hpa-demo
+  namespace: scale
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hpa-demo
+  namespace: scale
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: hpa-demo
+  template:
+    metadata:
+      labels:
+        app: hpa-demo
+    spec:
+      serviceAccountName: hpa-demo
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: hpa-demo
+      containers:
+        - name: app
+          image: registry.k8s.io/pause:3.9
+          resources:
+            requests:
+              cpu: 100m
+---
+# 축소 속도만 검증: 60초에 1개. 안정화 시간은 기본값(300초)
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: hpa-demo
+  namespace: scale
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: hpa-demo
+  minReplicas: 5
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: zone-fill
+  namespace: scale
+---
+# 영역 균형 검증용. 평소 0개, 분산 제약 없음
+# cpu 800m: 새 D2s_v5 노드(할당 가능 1900m, DaemonSet 약 410m)에는 1개만 들어가고(2×800 > 1490),
+# 업무 Pod가 있는 기존 노드(사용 약 800~930m)에도 1개 들어가도록 잡았다. 1200m이면 기존 노드에 못 들어가
+# 6개가 모두 새 노드를 요구해 풀마다 최대(3대)에 도달하므로 균형 여부를 가릴 수 없다(실측 3/3/3).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zone-fill
+  namespace: scale
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: zone-fill
+  template:
+    metadata:
+      labels:
+        app: zone-fill
+    spec:
+      serviceAccountName: zone-fill
+      nodeSelector:
+        kubernetes.azure.com/mode: user
+      containers:
+        - name: app
+          image: registry.k8s.io/pause:3.9
+          resources:
+            requests:
+              cpu: 800m

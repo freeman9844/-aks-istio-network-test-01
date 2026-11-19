@@ -1,0 +1,113 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bff-a
+  namespace: app
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bff-a
+  namespace: app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bff-a
+  template:
+    metadata:
+      labels:
+        app: bff-a
+        tier: bff
+    spec:
+      serviceAccountName: bff-a
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: bff-a
+      containers:
+        - name: app
+          image: nicolaka/netshoot:v0.13
+          command: ["socat"]
+          args:
+            - TCP-LISTEN:8080,fork,reuseaddr
+            - 'SYSTEM:"printf ''HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok''"'
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bff-a
+  namespace: app
+spec:
+  selector:
+    app: bff-a
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bff-b
+  namespace: app
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bff-b
+  namespace: app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bff-b
+  template:
+    metadata:
+      labels:
+        app: bff-b
+        tier: bff
+    spec:
+      serviceAccountName: bff-b
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: bff-b
+      containers:
+        - name: app
+          image: nicolaka/netshoot:v0.13
+          command: ["socat"]
+          args:
+            - TCP-LISTEN:8080,fork,reuseaddr
+            - 'SYSTEM:"printf ''HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok''"'
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bff-b
+  namespace: app
+spec:
+  selector:
+    app: bff-b
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080

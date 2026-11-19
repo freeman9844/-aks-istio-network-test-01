@@ -1,0 +1,120 @@
+# cluster.local/ns/aks-istio-ingress/sa/aks-istio-ingressgateway-internal 은 02-apply.ps1 이 Gateway Pod 의 SA 로 치환한다
+# (cluster.local/ns/aks-istio-ingress/sa/<sa>)
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: web
+spec:
+  mtls:
+    mode: STRICT
+---
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: app
+spec:
+  mtls:
+    mode: STRICT
+---
+apiVersion: networking.istio.io/v1
+kind: Gateway
+metadata:
+  name: web-gateway
+  namespace: web
+spec:
+  selector:
+    istio: aks-istio-ingressgateway-internal
+  servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - web-a.test
+        - web-b.test
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: web-a
+  namespace: web
+spec:
+  hosts:
+    - web-a.test
+  gateways:
+    - web-gateway
+  http:
+    - route:
+        - destination:
+            host: web-a.web.svc.cluster.local
+            port:
+              number: 8080
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: web-b
+  namespace: web
+spec:
+  hosts:
+    - web-b.test
+  gateways:
+    - web-gateway
+  http:
+    - route:
+        - destination:
+            host: web-b.web.svc.cluster.local
+            port:
+              number: 8080
+---
+# web-a·web-b(tier: web)는 Ingress Gateway 에서 온 요청만 허용
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: web-allow-ingress
+  namespace: web
+spec:
+  selector:
+    matchLabels:
+      tier: web
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/aks-istio-ingress/sa/aks-istio-ingressgateway-internal
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: bff-a-allow
+  namespace: app
+spec:
+  selector:
+    matchLabels:
+      app: bff-a
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/web/sa/web-a
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: bff-b-allow
+  namespace: app
+spec:
+  selector:
+    matchLabels:
+      app: bff-b
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/web/sa/web-b
+
