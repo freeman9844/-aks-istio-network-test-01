@@ -53,3 +53,25 @@ Describe '20-istio.yaml' {
     Get-Count (Get-Text '20-istio.yaml') 'mode:\s*STRICT' | Should -Be 2
   }
 }
+
+Describe 'readinessProbe' {
+  It '<_>: Deployment마다 readinessProbe' -ForEach @('10-web.yaml', '11-app.yaml') {
+    $t = Get-Text $_
+    Get-Count $t '^\s*readinessProbe:' | Should -Be (Get-Count $t '^kind:\s*Deployment\s*$')
+  }
+}
+
+Describe '40-scale.yaml 영역 분산(T12b·T13b)' {
+  It 'hpa-demo 는 replicas 를 두지 않음(HPA 가 관리)' {
+    (Get-Text '40-scale.yaml') | Should -Not -Match '(?m)^\s*replicas:\s*5\s*$'
+  }
+  It 'DoNotSchedule + minDomains 3 이 hpa-demo·zone-spread 2곳' {
+    $t = Get-Text '40-scale.yaml'
+    Get-Count $t 'whenUnsatisfiable:\s*DoNotSchedule' | Should -Be 2
+    Get-Count $t 'minDomains:\s*3' | Should -Be 2
+    Get-Count $t 'nodeTaintsPolicy:\s*Honor' | Should -Be 2
+  }
+  It 'zone-spread Deployment 존재, 평소 0개' {
+    (Get-Text '40-scale.yaml') | Should -Match '(?s)name:\s*zone-spread\s*\r?\n\s*namespace:\s*scale\s*\r?\nspec:\s*\r?\n\s*replicas:\s*0'
+  }
+}

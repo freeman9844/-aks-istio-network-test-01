@@ -66,3 +66,43 @@ Describe 'Get-ZoneBalanceVerdict -NodesBefore' {
   }
   It '확장 후 총 노드 수 증가 + 균형 → PASS' { (Get-ZoneBalanceVerdict @{'1'=2;'2'=2;'3'=2} 0 -NodesBefore 3).Verdict | Should -Be 'PASS' }
 }
+
+Describe 'Get-PodSpreadVerdict (T13b)' {
+  It '2/2/2, Pending 0 → PASS' {
+    (Get-PodSpreadVerdict -PodsByZone @{ '1' = 2; '2' = 2; '3' = 2 } -PendingCount 0 -Expected 6).Verdict | Should -Be 'PASS'
+  }
+  It '3/2/1 → FAIL' {
+    (Get-PodSpreadVerdict -PodsByZone @{ '1' = 3; '2' = 2; '3' = 1 } -PendingCount 0 -Expected 6).Verdict | Should -Be 'FAIL'
+  }
+  It 'Pending 남음 → FAIL (분포가 고르더라도)' {
+    $v = Get-PodSpreadVerdict -PodsByZone @{ '1' = 1; '2' = 1; '3' = 1 } -PendingCount 3 -Expected 6
+    $v.Verdict | Should -Be 'FAIL'
+    $v.Reason | Should -Match 'Pending'
+  }
+  It 'Running 수 부족(Pending 없음) → INCONCLUSIVE' {
+    (Get-PodSpreadVerdict -PodsByZone @{ '1' = 2; '2' = 2 } -PendingCount 0 -Expected 6).Verdict | Should -Be 'INCONCLUSIVE'
+  }
+}
+
+Describe 'Get-ProbeRewriteVerdict (T14)' {
+  BeforeAll {
+    function New-P([string]$Name, [bool]$Ready, $Port, $Path) { [pscustomobject]@{ Name = $Name; Ready = $Ready; Port = $Port; Path = $Path } }
+  }
+  It '모두 Ready + 15020 rewrite → PASS' {
+    $v = Get-ProbeRewriteVerdict -Pods @((New-P 'web/a' $true 15020 '/app-health/app/readyz'), (New-P 'app/b' $true 15020 '/app-health/app/readyz'))
+    $v.Verdict | Should -Be 'PASS'
+    $v.Observed | Should -Be 'Ready 2/2, rewrite 2/2'
+  }
+  It 'rewrite 안 됨 → FAIL' {
+    (Get-ProbeRewriteVerdict -Pods @((New-P 'web/a' $true 8080 '/'))).Verdict | Should -Be 'FAIL'
+  }
+  It 'probe 없음 → FAIL' {
+    (Get-ProbeRewriteVerdict -Pods @((New-P 'web/a' $true $null $null))).Verdict | Should -Be 'FAIL'
+  }
+  It 'Not Ready → FAIL' {
+    (Get-ProbeRewriteVerdict -Pods @((New-P 'web/a' $false 15020 '/app-health/app/readyz'))).Verdict | Should -Be 'FAIL'
+  }
+  It 'Pod 없음 → INCONCLUSIVE' {
+    (Get-ProbeRewriteVerdict -Pods @()).Verdict | Should -Be 'INCONCLUSIVE'
+  }
+}

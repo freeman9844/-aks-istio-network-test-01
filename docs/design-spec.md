@@ -123,6 +123,7 @@ PRD 장표에는 NSG, Istio AuthorizationPolicy, K8s NetworkPolicy로 Tier 간 �
 | nomesh | `probe` | X | STRICT mTLS 차단 증명용 클라이언트 |
 | scale | `hpa-demo` | X | HPA 검증 대상, CPU requests 100m, 유휴 상태 |
 | scale | `zone-fill` | X | 영역 균형 검증용. 평소 replicas 0 |
+| scale | `zone-spread` | X | 영역 강제 분산 + CAS 검증용(T13b). 평소 replicas 0 |
 
 각 Deployment는 `serviceAccountName`을 명시하고 replicas 1(hpa-demo, zone-fill 제외). 업무용 Deployment에는 영역 기준 `topologySpreadConstraints`(`maxSkew: 1`, `ScheduleAnyway`)를 넣는다. 이미지 선택은 빌더 몫이다. 조건: 8080에서 HTTP 200 응답, 같은 Pod에서 `curl`과 `nc`로 테스트 가능.
 - **필수:** web·app Service 포트 이름은 `http`로 하거나 `appProtocol: http`를 지정한다. 그래야 Istio가 HTTP로 인식해 AuthorizationPolicy 거부가 403으로 나온다. TCP로 인식되면 연결이 리셋되어 T5·T7·T9 판정이 어긋난다.
@@ -146,6 +147,15 @@ PRD 장표에는 NSG, Istio AuthorizationPolicy, K8s NetworkPolicy로 Tier 간 �
 - 판정: 모든 Pod가 Running이 된 뒤 영역별 사용자 노드 수의 최대-최소 차이가 1 이하이면 PASS. 15분 내 Pending이 남으면 FAIL(할당량 부족 등 원인 출력). 보조 근거로 Pending Pod의 `TriggeredScaleUp` 이벤트에 여러 풀이 함께 나오는지 기록한다(판정에는 쓰지 않음, 이벤트 형식은 PoC 필요).
 - 원복: `zone-fill`을 0으로 줄인다. 이후 CAS 축소(기본 10분 이상 소요)의 영역 분포는 판정하지 않고 관찰 값만 기록한다.
 
+### 5.9 PRD 권장 YAML 반영 (v2 추가)
+
+PRD 검토용 Deployment·PDB·HPA YAML 에서 이 샘플로 확인할 가치가 있는 항목을 추가한다.
+
+- `hpa-demo`: `replicas` 생략(HPA 가 소유), 사용자 풀 `nodeSelector`, 영역 분산을 `DoNotSchedule` + `minDomains: 3` + `nodeTaintsPolicy: Honor` + `matchLabelKeys: [pod-template-hash]` 로 강화.
+- T12b(관찰): T12 축소 전·후 `hpa-demo` Pod 의 영역 분포를 기록한다. 분산 제약은 배치 때만 적용되므로 판정하지 않는다(`INFO`).
+- T13b: `zone-spread`(위와 같은 강제 분산, 사용자 풀, CPU 800m)를 노드 1/1/1 에서 6개로 늘린다. 15분 안에 Pending 없이 영역별 Pod 수 차이 ≤1 이면 PASS. Pending 이 남으면 FAIL, Running 합계가 6이 아니면 INCONCLUSIVE. 시작 전 노드가 풀당 1대로 돌아올 때까지 최대 25분 기다린다.
+- T14: `web-a`/`web-b`/`bff-a`/`bff-b` 에 readinessProbe(httpGet `/` 8080)를 넣고, STRICT mTLS 에서 Istio 가 probe 를 `15020 /app-health/...` 로 rewrite 해 Ready 가 되는지 확인한다.
+
 ## 6. 검증 매트릭스 (`03-verify.ps1`)
 
 | ID | 출발 | 대상 | 기대 | 증명하는 규칙 | 대조군 |
@@ -164,10 +174,13 @@ PRD 장표에는 NSG, Istio AuthorizationPolicy, K8s NetworkPolicy로 Tier 간 �
 | T11 | `bff-a` | 같은 URL | TLS 연결 성공(HTTP 응답 코드 수신, 값 무관) | allow-app-to-data | — |
 | T12 | — | `hpa-demo` | 5→4→3→2, 간격 ≥55초 | HPA scaleDown policy | — |
 | T13 | — | 사용자 노드 풀 3개 | 확장 후 영역별 노드 수 차이 ≤1 | balance-similar-node-groups | 설정 확인 결과 |
+| T12b | — | `hpa-demo` 영역 분포 | 기록(INFO) | 축소 시 분산 제약 미적용 관찰 | — |
+| T13b | — | `zone-spread` 6개 | Pod 2/2/2, Pending 없음 | DoNotSchedule + minDomains 3 + CAS | 노드 1/1/1 시작 |
+| T14 | kubelet | web·bff Pod readinessProbe | rewrite 후 Ready | Istio probe rewrite | — |
 
 - 대조군이 실패하면 해당 차단 테스트는 INCONCLUSIVE.
 - T10·T11은 `nc` 같은 TCP 연결 확인을 쓰지 않는다. 사이드카가 있는 Pod에서는 Envoy가 TCP 연결을 Pod 안에서 먼저 받아 주므로, Cilium이 차단해도 연결 성공으로 보인다. 대신 실제 TLS 연결 수립(`curl`의 HTTP 코드가 000이 아님)으로 판정한다. Envoy의 업스트림 연결도 Pod IP로 나가므로 NetworkPolicy가 그대로 적용된다(제 판단, 실행 결과로 확인). 먼저 DNS가 PE IP(10.50.2.x)로 해석되는지 확인하고, 아니면 INCONCLUSIVE로 판정한다.
-- T12, T13은 시간이 걸리므로(각 10~15분) `-Only Network`, `-Only Hpa`, `-Only Zone` 같은 선택 실행을 지원한다.
+- T12, T13은 시간이 걸리므로(각 10~15분) `-Only Network`, `-Only Hpa`, `-Only Zone`, `-Only Spread` 같은 선택 실행을 지원한다.
 - 결과는 콘솔 표 + `aks-network-validation/results/<시각>.json`과 `.md`로 저장.
 
 ## 7. 파일 구성

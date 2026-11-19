@@ -1,9 +1,9 @@
 #Requires -Version 7
 # 검증 실행. 전용 kubeconfig(results/.kubeconfig)만 쓰고 현재 kubectl 컨텍스트는 바꾸지 않는다.
-# 사용: ./03-verify.ps1 [-Only All|Network|Hpa|Zone] [-ResourceGroup <이름>]
+# 사용: ./03-verify.ps1 [-Only All|Network|Hpa|Zone|Spread] [-ResourceGroup <이름>]
 [CmdletBinding()]
 param(
-  [ValidateSet('All', 'Network', 'Hpa', 'Zone')][string]$Only = 'All',
+  [ValidateSet('All', 'Network', 'Hpa', 'Zone', 'Spread')][string]$Only = 'All',
   [string]$ResourceGroup
 )
 
@@ -129,6 +129,32 @@ function Invoke-NetworkTests {
     (Get-TlsVerdict -ResolvedIp $ip -Code $run.Code -Expect 'fail' -ControlPassed ($cn -eq '' -and $run.Ran)) (Join-Note @("DNS=$ip", $cn, (Get-RunNote $run)))
 }
 
+function Invoke-ProbeTest {
+  # T14: STRICT mTLS 에서도 readinessProbe 가 Istio rewrite(15020 /app-health/)로 통과해 Ready 인지
+  $id = 'T14'; $to = 'web-a/web-b/bff-a/bff-b readinessProbe'; $expect = 'Ready + 15020 /app-health/ rewrite'
+  Write-Host '== readinessProbe rewrite (T14) =='
+  try {
+    $items = foreach ($t in @(@('web', 'web-a'), @('web', 'web-b'), @('app', 'bff-a'), @('app', 'bff-b'))) {
+      $ns, $name = $t
+      $pods = @((Invoke-Kube @('get', 'pods', '-n', $ns, '-l', "app=$name", '-o', 'json') -Json).items |
+          Where-Object { -not $_.metadata.PSObject.Properties['deletionTimestamp'] })
+      foreach ($p in $pods) {
+        $c = @($p.spec.containers | Where-Object { $_.name -eq 'app' })[0]
+        $port = $null; $path = $null
+        $rp = $c.PSObject.Properties['readinessProbe']
+        if ($rp -and $rp.Value.PSObject.Properties['httpGet']) { $port = [string]$rp.Value.httpGet.port; $path = [string]$rp.Value.httpGet.path }
+        $conds = if ($p.status.PSObject.Properties['conditions']) { @($p.status.conditions) } else { @() }
+        $ready = @($conds | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' }).Count -gt 0
+        [pscustomobject]@{ Name = "$ns/$($p.metadata.name)"; Ready = $ready; Port = $port; Path = $path }
+      }
+    }
+    $v = Get-ProbeRewriteVerdict -Pods @($items)
+    $null = Add-Result $id 'kubelet' $to $expect $v.Observed $v.Verdict $v.Reason
+  } catch {
+    $null = Add-Result $id 'kubelet' $to $expect '오류' 'INCONCLUSIVE' "실행 오류: $($_.Exception.Message)"
+  }
+}
+
 function Invoke-Kube {
   # 전용 kubeconfig로 kubectl 실행. 실패하면 stderr와 함께 throw, -Json 이면 객체로 변환
   param([Parameter(Mandatory)][string[]]$Arguments, [switch]$Json)
@@ -175,6 +201,8 @@ function Invoke-HpaTest {
       return
     }
 
+    $zBefore = Get-PodZoneCounts -Namespace 'scale' -Selector 'app=hpa-demo'
+    Write-Host "축소 전 hpa-demo Pod 영역 분포: $(Format-ZoneShort $zBefore.Counts)"
     $samples = [System.Collections.Generic.List[object]]::new()
     $getReplicas = { [int](Invoke-Kube @('get', 'deploy', 'hpa-demo', '-n', 'scale', '-o', 'jsonpath={.spec.replicas}')) }
     $samples.Add([pscustomobject]@{ Time = Get-Date; Replicas = (& $getReplicas) })
@@ -197,6 +225,15 @@ function Invoke-HpaTest {
     $firstNote = if ($firstDrop) { "패치→첫 감소 $([int]($firstDrop.Time - $patchTime).TotalSeconds)초(판정 외)" } else { '감소 없음' }
     $observed = "$($hv.Sequence -join ',') (간격 $((@($hv.IntervalsSec) | ForEach-Object { [int]$_ }) -join ',')초)"
     $null = Add-Result $id '—' $to $expect $observed $hv.Verdict (Join-Note @($hv.Reason, $firstNote, "표본 $($samples.Count)개/5초"))
+
+    # T12b: 분산 제약(DoNotSchedule)은 배치 때만 적용된다. 축소 후 영역 분포를 기록만 한다(판정 없음)
+    $null = Wait-Until -TimeoutSec 90 -IntervalSec 5 -Condition { (Get-PodZoneCounts -Namespace 'scale' -Selector 'app=hpa-demo').Running -le 2 }
+    $zAfter = Get-PodZoneCounts -Namespace 'scale' -Selector 'app=hpa-demo'
+    $vals = @('1', '2', '3' | ForEach-Object { if ($zAfter.Counts.ContainsKey($_)) { $zAfter.Counts[$_] } else { 0 } })
+    $diff = ($vals | Measure-Object -Maximum).Maximum - ($vals | Measure-Object -Minimum).Minimum
+    $null = Add-Result 'T12b' '—' 'scale/hpa-demo 영역 분포(DoNotSchedule, minDomains 3)' '기록(판정 없음)' `
+      "축소 전 $(Format-ZoneShort $zBefore.Counts) → 축소 후 $(Format-ZoneShort $zAfter.Counts)" 'INFO' `
+      "축소 후 영역별 Pod 수 차이 $diff (Running $($zAfter.Running)); 분산 제약은 축소 시 적용되지 않으므로 관찰값"
   } catch {
     $null = Add-Result $id '—' $to $expect '오류' 'INCONCLUSIVE' "실행 오류: $($_.Exception.Message)"
   } finally {
@@ -214,6 +251,67 @@ function Get-UserNodeZones {
 function Format-ZoneCounts {
   param([hashtable]$Counts)
   ('1', '2', '3' | ForEach-Object { $n = if ($Counts.ContainsKey($_)) { $Counts[$_] } else { 0 }; "영역$_=$n" }) -join ', '
+}
+
+function Format-ZoneShort {
+  param([hashtable]$Counts)
+  ('1', '2', '3' | ForEach-Object { if ($Counts.ContainsKey($_)) { $Counts[$_] } else { 0 } }) -join '/'
+}
+
+function Get-PodZoneCounts {
+  # 선택한 Pod 의 영역별 Running 수와 Pending 수(삭제 중 Pod 제외)
+  param([string]$Namespace, [string]$Selector)
+  $zoneOf = @{}
+  foreach ($n in @((Invoke-Kube @('get', 'nodes', '-o', 'json') -Json).items)) {
+    $l = $n.metadata.labels.PSObject.Properties['topology.kubernetes.io/zone']
+    $zoneOf[$n.metadata.name] = if ($l) { ConvertTo-ZoneKey -Zone $l.Value } else { '' }
+  }
+  $pods = @((Invoke-Kube @('get', 'pods', '-n', $Namespace, '-l', $Selector, '-o', 'json') -Json).items |
+      Where-Object { -not $_.metadata.PSObject.Properties['deletionTimestamp'] })
+  $h = @{}; $running = 0; $pending = 0
+  $names = [System.Collections.Generic.List[string]]::new()
+  foreach ($p in $pods) {
+    $names.Add($p.metadata.name)
+    if ($p.status.phase -eq 'Pending') { $pending++; continue }
+    if ($p.status.phase -ne 'Running') { continue }
+    $running++
+    $node = $p.spec.PSObject.Properties['nodeName']
+    $z = if ($node -and $zoneOf.ContainsKey($node.Value)) { $zoneOf[$node.Value] } else { '' }
+    if ($z) { if ($h.ContainsKey($z)) { $h[$z]++ } else { $h[$z] = 1 } }
+  }
+  [pscustomobject]@{ Counts = $h; Running = $running; Pending = $pending; Names = $names.ToArray() }
+}
+
+function Wait-UserNodesMin {
+  # 이전 확장의 노드가 남아 있으면 새 Pod 가 기존 노드에 들어가 CAS 확장을 검증하지 못하므로 풀마다 최소 대수가 될 때까지 대기
+  param([int]$TimeoutSec = 1500)
+  $isMin = {
+    $c = Get-ZoneNodeCounts -Zones (Get-UserNodeZones)
+    @('1', '2', '3' | Where-Object { -not $c.ContainsKey($_) -or $c[$_] -ne $Cfg.UserMin }).Count -eq 0
+  }
+  if (& $isMin) { return $true }
+  Write-Host "사용자 노드가 최소($($Cfg.UserMin)대/풀) 상태가 아님: CAS 축소 대기(최대 $([int]($TimeoutSec / 60))분)"
+  return (Wait-Until -TimeoutSec $TimeoutSec -IntervalSec 30 -Condition $isMin)
+}
+
+function Get-ScaleEventNote {
+  # 보조 근거(판정 외): 지정 Pod 의 TriggeredScaleUp 이벤트, Pending 이면 스케줄 실패 사유. 조회 실패는 판정을 바꾸지 않는다
+  param([System.Collections.Generic.HashSet[string]]$PodNames, [int]$Pending)
+  try {
+    $events = @((Invoke-Kube @('get', 'events', '-n', 'scale', '-o', 'json') -Json).items |
+        Where-Object { $_.involvedObject.kind -eq 'Pod' -and $PodNames.Contains($_.involvedObject.name) })
+    $scaleUps = @($events | Where-Object { $_.reason -eq 'TriggeredScaleUp' } | ForEach-Object { $_.message } | Select-Object -Unique)
+    $scaleNote = if ($scaleUps.Count) { 'TriggeredScaleUp: ' + ($scaleUps -join ' / ') } else { 'TriggeredScaleUp 이벤트 없음' }
+    $causeNote = ''
+    if ($Pending -gt 0) {
+      $causes = @($events | Where-Object { $_.reason -in 'FailedScheduling', 'NotTriggerScaleUp', 'FailedScaleUp' } |
+          ForEach-Object { "$($_.reason): $($_.message)" } | Select-Object -Unique -Last 3)
+      $causeNote = 'Pending 사유: ' + $(if ($causes.Count) { $causes -join ' / ' } else { '이벤트 없음' })
+    }
+    return (Join-Note @($causeNote, $scaleNote))
+  } catch {
+    return "이벤트 조회 실패: $($_.Exception.Message)"
+  }
 }
 
 function Invoke-ZoneTest {
@@ -236,18 +334,10 @@ function Invoke-ZoneTest {
       return
     }
 
-    # 이전 확장의 노드가 남아 있으면 zone-fill 이 기존 노드에 들어가 CAS 확장을 검증하지 못하므로 최소 상태로 돌아올 때까지 대기
-    $isMin = {
-      $c = Get-ZoneNodeCounts -Zones (Get-UserNodeZones)
-      @('1', '2', '3' | Where-Object { -not $c.ContainsKey($_) -or $c[$_] -ne $Cfg.UserMin }).Count -eq 0
-    }
-    if (-not (& $isMin)) {
-      Write-Host "사용자 노드가 최소($($Cfg.UserMin)대/풀) 상태가 아님: CAS 축소 대기(최대 20분)"
-      if (-not (Wait-Until -TimeoutSec 1200 -IntervalSec 30 -Condition $isMin)) {
-        $now = Get-ZoneNodeCounts -Zones (Get-UserNodeZones)
-        $null = Add-Result $id '—' $to $expect (Format-ZoneCounts $now) 'INCONCLUSIVE' "시작 조건 미충족: 사용자 노드가 풀당 $($Cfg.UserMin)대로 돌아오지 않음(20분 대기)"
-        return
-      }
+    if (-not (Wait-UserNodesMin)) {
+      $now = Get-ZoneNodeCounts -Zones (Get-UserNodeZones)
+      $null = Add-Result $id '—' $to $expect (Format-ZoneCounts $now) 'INCONCLUSIVE' "시작 조건 미충족: 사용자 노드가 풀당 $($Cfg.UserMin)대로 돌아오지 않음(25분 대기)"
+      return
     }
     $before = Get-ZoneNodeCounts -Zones (Get-UserNodeZones)
     Write-Host "확장 전 사용자 노드: $(Format-ZoneCounts $before)"
@@ -271,27 +361,12 @@ function Invoke-ZoneTest {
     $beforeTotal = ($before.Values | Measure-Object -Sum).Sum
     $zv = Get-ZoneBalanceVerdict -NodesByZone $after -PendingCount $pending -NodesBefore $beforeTotal
 
-    # 보조 근거(판정 외): 이번 zone-fill Pod의 TriggeredScaleUp 이벤트, Pending 이면 스케줄 실패 사유.
-    # 조회 실패가 판정을 바꾸지 않도록 따로 잡는다
-    $scaleNote = ''; $causeNote = ''
-    try {
-      $events = @((Invoke-Kube @('get', 'events', '-n', 'scale', '-o', 'json') -Json).items |
-          Where-Object { $_.involvedObject.kind -eq 'Pod' -and $podNames.Contains($_.involvedObject.name) })
-      $scaleUps = @($events | Where-Object { $_.reason -eq 'TriggeredScaleUp' } | ForEach-Object { $_.message } | Select-Object -Unique)
-      $scaleNote = if ($scaleUps.Count) { 'TriggeredScaleUp: ' + ($scaleUps -join ' / ') } else { 'TriggeredScaleUp 이벤트 없음' }
-      if ($pending -gt 0) {
-        $causes = @($events | Where-Object { $_.reason -in 'FailedScheduling', 'NotTriggerScaleUp', 'FailedScaleUp' } |
-            ForEach-Object { "$($_.reason): $($_.message)" } | Select-Object -Unique -Last 3)
-        $causeNote = 'Pending 사유: ' + $(if ($causes.Count) { $causes -join ' / ' } else { '이벤트 없음' })
-      }
-    } catch {
-      $scaleNote = "이벤트 조회 실패: $($_.Exception.Message)"
-    }
+    $eventNote = Get-ScaleEventNote -PodNames $podNames -Pending $pending
     $capNote = ''
     if (@('1', '2', '3' | Where-Object { $after.ContainsKey($_) -and $after[$_] -ge $Cfg.UserMax }).Count -eq 3) {
       $capNote = "모든 풀이 최대($($Cfg.UserMax)대)에 도달: 균형이 최대값 제한으로 강제되었을 수 있음"
     }
-    $note = Join-Note @($zv.Reason, "확장 전 $(Format-ZoneCounts $before)", "Running $running/$target, ${elapsed}초", $capNote, $causeNote, $scaleNote, "설정: $setting")
+    $note = Join-Note @($zv.Reason, "확장 전 $(Format-ZoneCounts $before)", "Running $running/$target, ${elapsed}초", $capNote, $eventNote, "설정: $setting")
     $null = Add-Result $id '—' $to $expect (Format-ZoneCounts $after) $zv.Verdict $note
   } catch {
     $null = Add-Result $id '—' $to $expect '오류' 'INCONCLUSIVE' "실행 오류: $($_.Exception.Message)"
@@ -301,10 +376,50 @@ function Invoke-ZoneTest {
   }
 }
 
-if ($Only -in 'All', 'Network') { Invoke-NetworkTests }
+function Invoke-SpreadTest {
+  # T13b: PRD 제안 YAML 의 영역 강제 분산(DoNotSchedule + minDomains 3)이 CAS 확장과 함께 Pod 2/2/2 를 만드는지
+  $id = 'T13b'; $to = 'scale/zone-spread 6개(DoNotSchedule, minDomains 3)'; $expect = 'Pod 2/2/2, Pending 없음'
+  $target = 6
+  Write-Host '== 영역 강제 분산 + CAS (T13b) =='
+  try {
+    if (-not (Wait-UserNodesMin)) {
+      $now = Get-ZoneNodeCounts -Zones (Get-UserNodeZones)
+      $null = Add-Result $id '—' $to $expect "노드 $(Format-ZoneShort $now)" 'INCONCLUSIVE' "시작 조건 미충족: 사용자 노드가 풀당 $($Cfg.UserMin)대로 돌아오지 않음(25분 대기)"
+      return
+    }
+    $before = Get-ZoneNodeCounts -Zones (Get-UserNodeZones)
+    Write-Host "확장 전 사용자 노드: $(Format-ZoneCounts $before)"
+    $start = Get-Date
+    $null = Invoke-Kube @('scale', 'deploy', 'zone-spread', '-n', 'scale', "--replicas=$target")
+    $podNames = [System.Collections.Generic.HashSet[string]]::new()
+    $deadline = $start.AddMinutes(15)
+    while ($true) {
+      Start-Sleep -Seconds 15
+      $pc = Get-PodZoneCounts -Namespace 'scale' -Selector 'app=zone-spread'
+      foreach ($n in $pc.Names) { $null = $podNames.Add($n) }
+      Write-Host ("  {0} zone-spread Running {1}/{2} (Pod {3}, Pending {4}), 사용자 노드 {5}" -f (Get-Date).ToString('HH:mm:ss'), $pc.Running, $target,
+        (Format-ZoneShort $pc.Counts), $pc.Pending, (Format-ZoneShort (Get-ZoneNodeCounts -Zones (Get-UserNodeZones))))
+      if ($pc.Running -ge $target -or (Get-Date) -ge $deadline) { break }
+    }
+    $elapsed = [int]((Get-Date) - $start).TotalSeconds
+    $after = Get-ZoneNodeCounts -Zones (Get-UserNodeZones)
+    $sv = Get-PodSpreadVerdict -PodsByZone $pc.Counts -PendingCount $pc.Pending -Expected $target
+    $eventNote = Get-ScaleEventNote -PodNames $podNames -Pending $pc.Pending
+    $observed = "Pod $(Format-ZoneShort $pc.Counts), 노드 $(Format-ZoneShort $before)→$(Format-ZoneShort $after)"
+    $null = Add-Result $id '—' $to $expect $observed $sv.Verdict (Join-Note @($sv.Reason, "Running $($pc.Running)/$target, ${elapsed}초", $eventNote))
+  } catch {
+    $null = Add-Result $id '—' $to $expect '오류' 'INCONCLUSIVE' "실행 오류: $($_.Exception.Message)"
+  } finally {
+    try { $null = Invoke-Kube @('scale', 'deploy', 'zone-spread', '-n', 'scale', '--replicas=0'); Write-Host 'zone-spread 0으로 원복' }
+    catch { Write-Warning "zone-spread 원복 실패: $($_.Exception.Message)" }
+  }
+}
+
+if ($Only -in 'All', 'Network') { Invoke-NetworkTests; Invoke-ProbeTest }
 if ($Only -in 'All', 'Hpa') { Invoke-HpaTest }
 if ($Only -in 'All', 'Zone') { Invoke-ZoneTest }
+if ($Only -in 'All', 'Spread') { Invoke-SpreadTest }
 
-$order = 'T1', 'T2', 'T2c', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12', 'T13'
+$order = 'T1', 'T2', 'T2c', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12', 'T12b', 'T13', 'T13b', 'T14'
 $sorted = @($Results | Sort-Object { [array]::IndexOf($order, $_.Id) })
 $null = Save-Results -Results $sorted

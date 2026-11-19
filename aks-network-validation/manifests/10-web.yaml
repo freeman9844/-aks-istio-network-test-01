@@ -37,6 +37,12 @@ spec:
             - 'SYSTEM:"printf ''HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok''"'
           ports:
             - containerPort: 8080
+          # STRICT mTLS 에서도 kubelet 이 확인할 수 있도록 Istio 가 15020 /app-health/ 로 rewrite (T14)
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            periodSeconds: 5
           resources:
             requests:
               cpu: 10m
@@ -94,6 +100,12 @@ spec:
             - 'SYSTEM:"printf ''HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok''"'
           ports:
             - containerPort: 8080
+          # STRICT mTLS 에서도 kubelet 이 확인할 수 있도록 Istio 가 15020 /app-health/ 로 rewrite (T14)
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            periodSeconds: 5
           resources:
             requests:
               cpu: 10m

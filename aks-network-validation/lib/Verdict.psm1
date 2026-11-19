@@ -151,6 +151,52 @@ function Get-NsgReuseVerdict {
   [pscustomobject]@{ Verdict = $T1Verdict; Note = "$NsgName/$RuleName Deny 규칙과 서브넷 연결 확인, T1 결과 재사용" }
 }
 
+function Get-PodSpreadVerdict {
+  # T13b: DoNotSchedule 분산 제약이 걸린 Pod 의 영역별 Running 수. Pending 이 남으면 먼저 FAIL
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)][hashtable]$PodsByZone,
+    [Parameter(Mandatory)][int]$PendingCount,
+    [Parameter(Mandatory)][int]$Expected
+  )
+  $counts = foreach ($z in '1', '2', '3') { if ($PodsByZone.ContainsKey($z)) { [int]$PodsByZone[$z] } else { 0 } }
+  $summary = "Pod 영역1=$($counts[0]), 영역2=$($counts[1]), 영역3=$($counts[2])"
+  if ($PendingCount -gt 0) {
+    return [pscustomobject]@{ Verdict = 'FAIL'; Reason = "Pending Pod가 ${PendingCount}개 남아 있습니다 ($summary)" }
+  }
+  $total = ($counts | Measure-Object -Sum).Sum
+  if ($total -ne $Expected) {
+    return [pscustomobject]@{ Verdict = 'INCONCLUSIVE'; Reason = "Running Pod $total/$Expected ($summary)" }
+  }
+  $stat = $counts | Measure-Object -Maximum -Minimum
+  $diff = $stat.Maximum - $stat.Minimum
+  $v = if ($diff -le 1) { 'PASS' } else { 'FAIL' }
+  $op = if ($diff -le 1) { '≤' } else { '>' }
+  [pscustomobject]@{ Verdict = $v; Reason = "영역별 Pod 수 차이 $diff $op 1 ($summary)" }
+}
+
+function Get-ProbeRewriteVerdict {
+  # T14: 각 Pod 의 app 컨테이너 readinessProbe 가 Istio 에 의해 15020 /app-health/ 로 바뀌었고 Ready 인지
+  # 입력: Name, Ready(bool), Port, Path(probe 없으면 $null)
+  [CmdletBinding()]
+  param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Pods)
+  $n = $Pods.Count
+  if ($n -eq 0) { return [pscustomobject]@{ Verdict = 'INCONCLUSIVE'; Observed = 'Pod 없음'; Reason = '대상 Pod 없음' } }
+  $isRewritten = { param($p) [string]$p.Port -eq '15020' -and [string]$p.Path -like '/app-health/*' }
+  $noProbe = @($Pods | Where-Object { -not $_.Path })
+  $notRw = @($Pods | Where-Object { $_.Path -and -not (& $isRewritten $_) })
+  $notReady = @($Pods | Where-Object { -not $_.Ready })
+  $rw = @($Pods | Where-Object { & $isRewritten $_ }).Count
+  $observed = "Ready $($n - $notReady.Count)/$n, rewrite $rw/$n"
+  $names = { param($list) ($list | ForEach-Object { $_.Name }) -join ', ' }
+  $reason = if ($noProbe.Count) { "readinessProbe 없음: $(& $names $noProbe)" }
+  elseif ($notRw.Count) { "probe rewrite 안 됨: " + (($notRw | ForEach-Object { "$($_.Name)=$($_.Port)$($_.Path)" }) -join ', ') }
+  elseif ($notReady.Count) { "Not Ready: $(& $names $notReady)" }
+  else { $null }
+  if ($reason) { return [pscustomobject]@{ Verdict = 'FAIL'; Observed = $observed; Reason = $reason } }
+  [pscustomobject]@{ Verdict = 'PASS'; Observed = $observed; Reason = "모든 Pod가 15020 $($Pods[0].Path) 로 rewrite 후 Ready" }
+}
+
 function Assert-NotEmpty {
   [CmdletBinding()]
   param(
@@ -160,4 +206,4 @@ function Assert-NotEmpty {
   if ([string]::IsNullOrWhiteSpace($Value)) { throw "$Name 값이 비어 있습니다" }
 }
 
-Export-ModuleMember -Function Get-HttpVerdict, Test-PeIp, Get-TlsVerdict, Get-HpaVerdict, Get-ZoneBalanceVerdict, Get-NsgReuseVerdict, Assert-NotEmpty
+Export-ModuleMember -Function Get-HttpVerdict, Test-PeIp, Get-TlsVerdict, Get-HpaVerdict, Get-ZoneBalanceVerdict, Get-NsgReuseVerdict, Get-PodSpreadVerdict, Get-ProbeRewriteVerdict, Assert-NotEmpty
