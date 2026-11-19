@@ -25,7 +25,31 @@ AKS 아키텍처 설계에 넣은 통제가 실제로 동작하는지 작은 샘
 | [`deck/aksnetval-design-v2.pptx`](deck/aksnetval-design-v2.pptx) | **최신본, 6장.** 1~3장은 실제 구성을 반영한 설계, 4~6장은 결과 |
 | [`deck/aksnetval-design.pptx`](deck/aksnetval-design.pptx) | 설계 단계 원본, 3장 |
 
-![결과 장표 미리보기](deck/aksnetval-design-v2_render/contact_sheet.png)
+이미지를 클릭하면 원본 크기로 열립니다.
+
+#### 1. 검증 샘플 구성 — NSG · Istio · NetworkPolicy
+
+<a href="deck/aksnetval-design-v2_render/slide_01.png"><img src="deck/aksnetval-design-v2_render/slide_01.png" alt="슬라이드 1" width="800"></a>
+
+#### 2. 검증 매트릭스 — 차단 테스트마다 허용 대조군을 둡니다
+
+<a href="deck/aksnetval-design-v2_render/slide_02.png"><img src="deck/aksnetval-design-v2_render/slide_02.png" alt="슬라이드 2" width="800"></a>
+
+#### 3. 스케일링 검증 — HPA 축소 속도와 영역 균형
+
+<a href="deck/aksnetval-design-v2_render/slide_03.png"><img src="deck/aksnetval-design-v2_render/slide_03.png" alt="슬라이드 3" width="800"></a>
+
+#### 4. 결과 ① 네트워크 통제 — T1~T11 12건 모두 PASS
+
+<a href="deck/aksnetval-design-v2_render/slide_04.png"><img src="deck/aksnetval-design-v2_render/slide_04.png" alt="슬라이드 4" width="800"></a>
+
+#### 5. 결과 ② 스케일링 — HPA 1분에 1개 축소, 영역 3/2/2 확장
+
+<a href="deck/aksnetval-design-v2_render/slide_05.png"><img src="deck/aksnetval-design-v2_render/slide_05.png" alt="슬라이드 5" width="800"></a>
+
+#### 6. 결과 정리 — PRD 설계에 주는 의미와 남은 한계
+
+<a href="deck/aksnetval-design-v2_render/slide_06.png"><img src="deck/aksnetval-design-v2_render/slide_06.png" alt="슬라이드 6" width="800"></a>
 
 ## 검증 구성
 
