@@ -1,8 +1,8 @@
 # AKS 네트워크 통제 검증 — Linux 관리 VM·az CLI 실행판
 
 AIPortal PRD 의 AKS 네트워크 통제(인바운드 경로, Istio 인가, NetworkPolicy, Private Endpoint egress, 영역 분산·축소, API 서버 비공개)를
-**Private Cluster** 에서 재현하고 판정합니다. PowerShell 판(`../aks-network-validation`)과 같은 검증을, 리소스 그룹 안의
-Linux 관리 VM(`vm-mgmt`)에서 bash + az CLI 로 실행하는 판입니다.
+**Private Cluster** 에서 재현하고 판정합니다. 리소스 그룹 안의 Linux 관리 VM(`vm-mgmt`)에서 bash + az CLI 로 실행합니다.
+매니페스트는 `manifests/` 에 모두 있습니다. 처음 만든 PowerShell 판은 이 폴더로 합치면서 삭제했으며 git 이력에 남아 있습니다.
 
 - 로컬(WSL 또는 Cloud Shell)은 부트스트랩·업로드·진행 로그 조회·결과 회수만 합니다.
 - 실제 생성·적용·검증은 `vm-mgmt` 안에서 `az vm run-command` + `systemd-run` 으로 백그라운드 실행합니다.
@@ -89,7 +89,7 @@ local/run.sh verify                # 약 40분(T13b 의 CAS 축소 대기 포함
 
 ### app 네임스페이스 PE egress 분리(T16~T23)
 
-`manifests-linux/31-app-pe-egress.yaml` 의 NetworkPolicy 3개와 CiliumNetworkPolicy 1개로 구성합니다. 표준 NetworkPolicy 는 허용 규칙의 **합집합**이므로,
+`manifests/31-app-pe-egress.yaml` 의 NetworkPolicy 3개와 CiliumNetworkPolicy 1개로 구성합니다. 표준 NetworkPolicy 는 허용 규칙의 **합집합**이므로,
 공통 정책에서 PE 서브넷만 빼고 Pod 별로 필요한 PE IP 만 다시 허용합니다.
 
 | 정책 | 대상 Pod | egress 허용 |

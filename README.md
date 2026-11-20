@@ -16,18 +16,17 @@ AKS 아키텍처 설계에 넣은 통제가 실제로 동작하는지 작은 샘
 
 > **발견:** Cilium 기본 설정에서는 NetworkPolicy `ipBlock`(0.0.0.0/0 포함)이 노드 IP에 매칭되지 않아, PE 분리 정책만 두면 app Pod → 노드(kubelet 등) 연결이 막혔습니다(T22·T23 FAIL). CiliumNetworkPolicy `toEntities: [host, remote-node]`를 더해 해결했습니다. [자세히](#노드-egresst22t23)
 
-먼저 만든 PowerShell판(공개 API 서버, T1~T14, 17건 PASS + T12b INFO)은 [이전 판](#이전-판-powershell판)에 보존합니다.
+먼저 만든 PowerShell판(공개 API 서버, T1~T14, 17건 PASS + T12b INFO)은 Linux판으로 합쳤습니다. 결과와 장표는 [이전 판](#이전-판-powershell판)에 남겨 두었습니다.
 
 ## 저장소 구성
 
 | 경로 | 내용 |
 |---|---|
-| [`aks-network-validation-linux/`](aks-network-validation-linux/) | **메인.** 로컬 부트스트랩·실행(`local/`), VM 안 단계 스크립트(`vm/`), Python 판정(`aksnetval/`), pytest, 매니페스트, [실행 안내 README](aks-network-validation-linux/README.md) |
+| [`aks-network-validation-linux/`](aks-network-validation-linux/) | **메인.** 로컬 부트스트랩·실행(`local/`), VM 안 단계 스크립트(`vm/`), Python 판정(`aksnetval/`), pytest, 매니페스트(`manifests/`), [실행 안내 README](aks-network-validation-linux/README.md) |
 | [`docs/linux-design-spec.md`](docs/linux-design-spec.md) | Linux판 설계 문서: 관리 VM, Private Cluster, 권한, T15~T23 판정 규칙 |
 | [`docs/linux-implementation-plan.md`](docs/linux-implementation-plan.md) | Linux판 구현 계획(Task 1~10, 9b, 9c) |
 | [`deck/`](deck/) | 설계·결과 장표 PPTX, msdeck YAML 원본, 발표 노트, 렌더링 PNG. 최신은 v6 |
 | [`evidence/`](evidence/) | 실측 결과(md/json)와 실행 로그. Linux판은 [`evidence/linux/`](evidence/linux/). [색인](evidence/README.md) |
-| [`aks-network-validation/`](aks-network-validation/) | 이전 판(PowerShell): 실행 스크립트, 매니페스트, Pester 단위 테스트 |
 | [`docs/design-spec.md`](docs/design-spec.md), [`docs/implementation-plan.md`](docs/implementation-plan.md) | 이전 판 설계 문서(T1~T14 토폴로지·정책·판정 규칙의 원본)와 구현 계획 |
 
 ## 장표
@@ -211,15 +210,7 @@ local/99-cleanup.sh --force        # 리소스 그룹 삭제
 
 로컬 Windows PowerShell에서 **공개 API 서버** 클러스터를 대상으로 T1~T14를 실행한 첫 판입니다. **결과: 17건 PASS + T12b INFO**(2026-11-20, koreacentral). Linux판과 결론이 같습니다. T15~T23은 이 판에 없습니다.
 
-- 스크립트: [`aks-network-validation/`](aks-network-validation/)([실행 안내](aks-network-validation/README.md)). Windows PowerShell 7, Azure CLI, kubectl, Pester 5.5 이상 필요
+스크립트는 Linux판으로 합치면서 삭제했습니다. 공통 매니페스트는 [`aks-network-validation-linux/manifests/`](aks-network-validation-linux/manifests/)로 옮겼습니다. 삭제 직전 스크립트는 커밋 [`0104237`](https://github.com/freeman9844/aks-istio-network-test-01/tree/0104237/aks-network-validation)에서 볼 수 있습니다.
+
 - 결과: [`evidence/10-v4-full-run_20261120-100357.md`](evidence/10-v4-full-run_20261120-100357.md), T12c 재실행 [`evidence/11-v4-t12c-rerun_20261120-100846.md`](evidence/11-v4-t12c-rerun_20261120-100846.md), 이전 실행 이력은 [증적 색인](evidence/README.md)
 - 장표: [`deck/aksnetval-design-v4.pptx`](deck/aksnetval-design-v4.pptx)(7장)
-
-```powershell
-cd aks-network-validation
-Invoke-Pester ./tests          # 단위 테스트 93개
-./01-infra.ps1                 # 약 25분
-./02-apply.ps1                 # 약 5분
-./03-verify.ps1                # T1~T14, 약 30~55분 (-Only Network|Hpa|Floor|Zone|Spread)
-./04-cleanup.ps1               # 리소스 그룹 삭제
-```

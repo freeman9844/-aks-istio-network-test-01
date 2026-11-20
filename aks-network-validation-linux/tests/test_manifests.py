@@ -1,10 +1,10 @@
-"""기존 Manifests.Tests.ps1 이식. 매니페스트는 PowerShell 판 폴더를 그대로 참조한다."""
+"""기존 Manifests.Tests.ps1 이식. 매니페스트는 이 폴더의 manifests/ 하나로 관리한다."""
 import re
 from pathlib import Path
 
 import pytest
 
-MANIFESTS = Path(__file__).resolve().parents[2] / "aks-network-validation" / "manifests"
+MANIFESTS = Path(__file__).resolve().parents[1] / "manifests"
 
 
 def text(name: str) -> str:
@@ -83,14 +83,14 @@ def test_zone_spread_zero_replicas():
 
 # ---------- Linux 판 전용: app 네임스페이스 PE egress 분리(T11, T16~T21) ----------
 
-LINUX_MANIFESTS = Path(__file__).resolve().parents[1] / "manifests-linux"
+LINUX_MANIFESTS = MANIFESTS
 
 
 @pytest.fixture(scope="module")
 def app_pe_policies():
     yaml = pytest.importorskip("yaml")
     path = LINUX_MANIFESTS / "31-app-pe-egress.yaml"
-    assert path.exists(), "매니페스트 없음: manifests-linux/31-app-pe-egress.yaml"
+    assert path.exists(), "매니페스트 없음: manifests/31-app-pe-egress.yaml"
     docs = [d for d in yaml.safe_load_all(path.read_text(encoding="utf-8")) if d]
     assert all(d["metadata"]["namespace"] == "app" for d in docs)
     return {d["metadata"]["name"]: d["spec"] for d in docs if d["kind"] == "NetworkPolicy"}

@@ -41,8 +41,6 @@ build_bundle() {
   stage_dir="$(mktemp -d)"
   cp -r "$ROOT/aksnetval" "$ROOT/vm" "$ROOT/config.sh" "$stage_dir/"
   cp -r "$MANIFESTS_DIR" "$stage_dir/manifests"
-  # Linux 판 전용 매니페스트(31-app-pe-egress.yaml 등)는 공유 매니페스트와 같은 폴더로 합친다
-  cp "$ROOT/manifests-linux/"*.yaml "$stage_dir/manifests/"
   find "$stage_dir" -name '__pycache__' -type d -prune -exec rm -rf {} +
   tar -czf "$out" -C "$stage_dir" .
   rm -rf "$stage_dir"

@@ -127,3 +127,12 @@ def test_exists_treats_empty_object_as_missing(tmp_path, out, rc, expected):
     stub.chmod(0o755)
     r = bash("source vm/lib/common.sh && exists network x show", {"AZ": str(stub)})
     assert (r.returncode == 0) == (expected == 0)
+
+
+def test_config_manifests_dir_is_own_folder(az_stub):
+    # 공통·Linux 전용 매니페스트를 이 폴더의 manifests/ 하나에서 읽는다(다른 폴더 참조 없음)
+    r = bash('source config.sh && echo "$MANIFESTS_DIR"', {"AZ": az_stub})
+    assert r.returncode == 0, r.stderr
+    d = Path(r.stdout.strip())
+    assert d == ROOT / "manifests"
+    assert (d / "20-istio.yaml").is_file() and (d / "31-app-pe-egress.yaml").is_file()

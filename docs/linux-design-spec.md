@@ -214,3 +214,9 @@ T1~T14 는 기존 설계의 출발지·대상·기대값·판정 규칙을 그�
 - Istio 서비스 메시 애드온과 Private Cluster 조합은 문서상 제한을 찾지 못했지만 실측으로 확인한다(PoC 필요).
 - (실측 확인) AKS Cilium 기본 설정에서 표준 NetworkPolicy 의 ipBlock 은 노드 IP 에 매칭되지 않아 `0.0.0.0/0` 으로도 노드(kubelet 등) egress 가 막힌다(T22·T23 FAIL). CiliumNetworkPolicy `toEntities: [host, remote-node]` 로 보완해 PASS 를 확인했다. 노드 쪽 포트 제한(`toPorts`)은 PoC 필요.
 - run-command 스크립트 인자 크기 한도는 문서에서 확인하지 못했다. 업로드 청크 크기는 구현 중 실측으로 정한다.
+
+## 10. 폴더 통합 (2026-11-20 개정)
+
+- 사용자 요청으로 PowerShell 판(`aks-network-validation/`)을 `aks-network-validation-linux/` 로 합쳤다. 위 2절의 "PowerShell 판 보존"과 4절의 "`../aks-network-validation/manifests/` 참조"는 이 개정으로 대체한다.
+- 공통 매니페스트 7개와 Linux 전용 `31-app-pe-egress.yaml` 은 `aks-network-validation-linux/manifests/` 한 곳에 둔다(`manifests-linux/` 폐지). `config.sh` 의 `MANIFESTS_DIR` 은 항상 `<폴더>/manifests` 이고, 번들은 이 폴더를 그대로 넣는다.
+- PowerShell 판 스크립트(`*.ps1`, `lib/`, Pester 테스트, README)는 삭제했다. git 이력과 GitHub `evidence/` 의 실측 결과로 남는다. 로컬의 미추적 실행 결과는 `aks-network-validation-linux/results/powershell/` 로 옮겼다.

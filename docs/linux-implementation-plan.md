@@ -292,3 +292,14 @@ Cilium 이 노드 IP 를 host·remote-node 엔터티로 다루므로, `app-egres
 - [x] **Step 3: README 작성** — 목적, 구조도(설계 5.1·5.3), 사전 요구(WSL/Cloud Shell, az login, 권한), 실행 순서, `--only`/`--poll`, T15 설명, 최신 결과 표(1회분만), 정리 방법. 표 셀 안 `|` 는 `\|`.
 - [x] **Step 4: 정리** — `local/99-cleanup.sh --force` 후 `az group exists -n rg-aksnetval-linux-krc` 가 `false` 가 될 때까지 확인
 - [x] **Step 5: 커밋** — `docs(linux): 실행 안내와 실측 결과`
+
+### Task 11: 폴더 통합 (PowerShell 판 삭제, 매니페스트 이동)
+
+**Files:**
+- Move: `aks-network-validation/manifests/*.yaml`, `aks-network-validation-linux/manifests-linux/31-app-pe-egress.yaml` → `aks-network-validation-linux/manifests/`
+- Delete: `aks-network-validation/`(ps1·lib·tests·README). 미추적 `results/` 는 `aks-network-validation-linux/results/powershell/` 로 이동
+- Modify: `config.sh`(`MANIFESTS_DIR="$_CFG_DIR/manifests"`), `local/run.sh`(`manifests-linux` 복사 제거), `tests/test_manifests.py`(경로), `tests/test_shell.py`(`test_config_manifests_dir_is_own_folder`), `README.md`
+
+- [x] **Step 1: 실패 테스트** — 매니페스트 경로를 `<폴더>/manifests` 로 바꾸고 `MANIFESTS_DIR` 검사 추가 → 27 failed, 4 errors
+- [x] **Step 2: 이동·수정** — `git mv` 로 이동, PowerShell 판 `git rm`, config·run.sh 수정
+- [x] **Step 3: 통과 확인** — `python3 -m pytest -q` → 215 passed, 1 skipped

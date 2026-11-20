@@ -35,7 +35,7 @@ VM_MGMT="vm-mgmt"
 NAT_MGMT="nat-mgmt"
 PIP_NAT_MGMT="pip-nat-mgmt"
 BLOB_PE="pe-blob-aksnetval"
-# app 네임스페이스 NetworkPolicy 가 /32 로 허용하므로 PE IP 를 고정한다(manifests-linux/31-app-pe-egress.yaml 과 일치)
+# app 네임스페이스 NetworkPolicy 가 /32 로 허용하므로 PE IP 를 고정한다(manifests/31-app-pe-egress.yaml 과 일치)
 BLOB_PE_IP="10.50.2.4"
 BLOB2_PE="pe-blob2-aksnetval"
 BLOB2_PE_IP="10.50.2.5"
@@ -43,12 +43,7 @@ BLOB_DNS_ZONE="privatelink.blob.core.windows.net"
 BLOB_DNS_LINK="link-vnet-aksnetval"
 TAGS="purpose=aksnetval"
 VM_ROOT="${VM_ROOT:-/opt/aksnetval}"
-# vm-mgmt 번들에는 manifests/ 가 같은 폴더에 있고, 로컬에서는 PowerShell 판 폴더를 참조한다
-if [[ -d "$_CFG_DIR/manifests" ]]; then
-  MANIFESTS_DIR="$_CFG_DIR/manifests"
-else
-  MANIFESTS_DIR="$(cd "$_CFG_DIR/.." && pwd)/aks-network-validation/manifests"
-fi
+MANIFESTS_DIR="$_CFG_DIR/manifests"
 
 # 구독 ID 는 Storage 이름 해시에만 쓰고 파일에 남기지 않는다
 _sub="$("${AZ:-az}" account show --query id -o tsv 2>/dev/null | tr -d '\r[:space:]')" || _sub=""
