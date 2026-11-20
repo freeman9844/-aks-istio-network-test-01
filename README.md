@@ -10,6 +10,8 @@ AKS 아키텍처 설계에 넣은 통제가 실제로 동작하는지 작은 샘
 
 **결과: 17건 PASS + 기록 1건(T12b INFO)**(2026-11-20, koreacentral). 검증 후 리소스 그룹은 삭제했습니다.
 
+**Linux 관리 VM판([`aks-network-validation-linux/`](aks-network-validation-linux/)):** 같은 검증을 **Private Cluster**에서 Linux 관리 VM(`vm-mgmt`)의 bash와 az CLI로 실행합니다. 이 판에는 API 서버 비공개(T15)와 app 네임스페이스 PE egress 분리(T16~T21)를 추가했습니다. T16~T21은 `bff-b`만 Blob PE로, `bff-a`만 Blob2 PE로 나가도록 허용하면서 DNS 같은 기본 egress는 유지되는지 확인합니다. **결과: 24건 PASS + 기록 1건(T12b INFO)**(2026-11-20, koreacentral). 자세한 내용은 [Linux판 README](aks-network-validation-linux/README.md)를 보세요.
+
 ## 저장소 구성
 
 | 경로 | 내용 |
@@ -17,6 +19,9 @@ AKS 아키텍처 설계에 넣은 통제가 실제로 동작하는지 작은 샘
 | [`aks-network-validation/`](aks-network-validation/) | 실행 스크립트(01 인프라 → 02 적용 → 03 검증 → 04 정리), 매니페스트, Pester 단위 테스트, [실행 안내 README](aks-network-validation/README.md) |
 | [`docs/design-spec.md`](docs/design-spec.md) | 설계 문서: 토폴로지, 주소, 정책, 테스트 매트릭스, 판정 규칙 |
 | [`docs/implementation-plan.md`](docs/implementation-plan.md) | 구현 계획(Task 1~6) |
+| [`aks-network-validation-linux/`](aks-network-validation-linux/) | Linux 관리 VM판: 로컬 부트스트랩·실행(`local/`), VM 안 단계 스크립트(`vm/`), Python 판정(`aksnetval/`), pytest, 매니페스트, [실행 안내 README](aks-network-validation-linux/README.md) |
+| [`docs/linux-design-spec.md`](docs/linux-design-spec.md) | Linux판 설계 문서 |
+| [`docs/linux-implementation-plan.md`](docs/linux-implementation-plan.md) | Linux판 구현 계획(Task 1~10, 9b) |
 | [`deck/`](deck/) | 설계·결과 장표 PPTX, msdeck YAML 원본, 발표 노트, 렌더링 PNG |
 | [`evidence/`](evidence/) | 실측 결과(md/json)와 실행 로그. [색인](evidence/README.md) |
 
@@ -148,4 +153,16 @@ Invoke-Pester ./tests          # 단위 테스트 93개
 ./02-apply.ps1                 # 약 5분
 ./03-verify.ps1                # T1~T14, 약 30~55분 (-Only Network|Hpa|Floor|Zone|Spread)
 ./04-cleanup.ps1               # 리소스 그룹 삭제
+```
+
+Linux 관리 VM판은 WSL 또는 Cloud Shell의 bash, Azure CLI, Python 3가 필요합니다. 자세한 내용은 [`aks-network-validation-linux/README.md`](aks-network-validation-linux/README.md)를 보세요.
+
+```bash
+cd aks-network-validation-linux
+python3 -m pytest -q               # 단위 테스트 204개(1개 skip)
+local/00-bootstrap.sh --force      # vm-mgmt 준비, 약 5분
+local/run.sh infra                 # 약 25분
+local/run.sh apply                 # 약 5분
+local/run.sh verify                # T1~T21, 약 40분 (--only network|hpa|floor|zone|spread)
+local/99-cleanup.sh --force        # 리소스 그룹 삭제
 ```
