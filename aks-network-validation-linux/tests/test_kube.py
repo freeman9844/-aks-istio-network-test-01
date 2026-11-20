@@ -13,6 +13,8 @@ from aksnetval.kube import (
     nodes_at_min,
     pod_zone_counts,
     probe_items,
+    rs_delete_times,
+    rs_pod_snapshot,
     scale_event_note,
 )
 
@@ -127,3 +129,51 @@ def test_cli_reads_json_file_arguments(tmp_path, capsys):
 
     assert _cli.run(vars(kube), ["node_zone_counts", json.dumps({"nodes": f"@{f}"})]) == 0
     assert json.loads(capsys.readouterr().out) == {"1": 2, "2": 1, "3": 1}
+
+
+# T12c: ReplicaSet 삭제 규칙 예측용 Pod 스냅숏과 SuccessfulDelete 이벤트
+def _rspod(name, uid, node, created, ready_at=None, restarts=(0,), deleting=False, cost=None):
+    p = {
+        "metadata": {"name": name, "uid": uid, "creationTimestamp": created},
+        "spec": {"nodeName": node},
+        "status": {"phase": "Running", "conditions": [], "containerStatuses": [{"restartCount": r} for r in restarts]},
+    }
+    if ready_at:
+        p["status"]["conditions"].append({"type": "Ready", "status": "True", "lastTransitionTime": ready_at})
+    if deleting:
+        p["metadata"]["deletionTimestamp"] = "2026-11-20T00:00:00Z"
+    if cost is not None:
+        p["metadata"]["annotations"] = {"controller.kubernetes.io/pod-deletion-cost": str(cost)}
+    return p
+
+
+def test_rs_pod_snapshot_fields():
+    pods = {"items": [
+        _rspod("a", "u-a", "n2", "2026-11-20T01:00:00Z", "2026-11-20T01:00:05Z", restarts=(1, 3), cost=-5),
+        _rspod("b", "u-b", "n1", "2026-11-20T01:01:00Z"),
+        _rspod("c", "u-c", "n3", "2026-11-20T01:02:00Z", "2026-11-20T01:02:04Z", deleting=True),
+    ]}
+    assert rs_pod_snapshot(NODES, pods) == [
+        {"name": "a", "uid": "u-a", "node": "n2", "zone": "2", "phase": "Running", "ready": True,
+         "ready_time": "2026-11-20T01:00:05Z", "created": "2026-11-20T01:00:00Z", "restarts": 3, "cost": -5},
+        {"name": "b", "uid": "u-b", "node": "n1", "zone": "1", "phase": "Running", "ready": False,
+         "ready_time": None, "created": "2026-11-20T01:01:00Z", "restarts": 0, "cost": 0},
+    ]
+
+
+def test_rs_delete_times_from_watch_rows():
+    # watch 행: [이름, deletionTimestamp, deletionGracePeriodSeconds]. 삭제 요청 시각 = 앞 값 - 유예
+    rows = [
+        ["p2", "", ""],
+        ["p2", "2026-11-20T01:02:30Z", "30"],
+        ["p1", "2026-11-20T01:01:30Z", "30"],
+        ["p2", "2026-11-20T01:02:30Z", "30"],
+        ["old", "2026-11-20T00:01:30Z", "30"],
+        ["p3", "2026-11-20T01:03:00Z", "0"],
+        ["bad"],
+    ]
+    assert rs_delete_times(rows, ["p1", "p2", "p3"]) == [
+        {"name": "p1", "time": "2026-11-20T01:01:00Z"},
+        {"name": "p2", "time": "2026-11-20T01:02:00Z"},
+        {"name": "p3", "time": "2026-11-20T01:03:00Z"},
+    ]

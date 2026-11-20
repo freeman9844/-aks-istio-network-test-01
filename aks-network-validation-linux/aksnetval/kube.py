@@ -1,5 +1,6 @@
 """kubectl·az JSON 집계(03-verify.ps1 의 Get-PodZoneCounts, Get-ScaleEventNote 등 이식)."""
 import sys
+from datetime import datetime, timedelta
 
 from aksnetval import _cli
 from aksnetval.parse import zone_key
@@ -81,6 +82,40 @@ def scale_event_note(events: dict, pod_names: list[str], pending: int) -> str:
         parts.append("Pending 사유: " + (" / ".join(causes) if causes else "이벤트 없음"))
     parts.append(scale)
     return "; ".join(parts)
+
+
+def rs_pod_snapshot(nodes: dict, pods: dict) -> list[dict]:
+    """T12c: ReplicaSet 삭제 순위 계산에 쓰는 필드만 뽑는다(종료 중 Pod 제외)."""
+    zone_of = _zone_of(nodes)
+    out = []
+    for p in _alive(pods.get("items", [])):
+        md, st = p["metadata"], p.get("status", {})
+        node = p.get("spec", {}).get("nodeName", "")
+        cond = next((c for c in st.get("conditions", []) if c.get("type") == "Ready"), {})
+        ready = cond.get("status") == "True"
+        cost = (md.get("annotations") or {}).get("controller.kubernetes.io/pod-deletion-cost", "0")
+        out.append({
+            "name": md["name"], "uid": md.get("uid", ""), "node": node, "zone": zone_of.get(node, ""),
+            "phase": st.get("phase", ""), "ready": ready, "ready_time": cond.get("lastTransitionTime") if ready else None,
+            "created": md.get("creationTimestamp"),
+            "restarts": max((c.get("restartCount", 0) for c in st.get("containerStatuses", [])), default=0),
+            "cost": int(cost),
+        })
+    return out
+
+
+def rs_delete_times(rows: list[list[str]], names: list[str]) -> list[dict]:
+    """T12c: Pod watch 행 [이름, deletionTimestamp, 유예초]에서 삭제 요청 시각을 시각순으로.
+
+    SuccessfulDelete 이벤트는 10분 안에 비슷한 이벤트가 쌓이면 하나로 합쳐져(메시지 덮어씀) 일부가 사라지므로 쓰지 않는다.
+    """
+    wanted = set(names)
+    seen: dict[str, datetime] = {}
+    for r in rows:
+        if len(r) < 3 or r[0] not in wanted or r[0] in seen or not r[1]:
+            continue
+        seen[r[0]] = datetime.fromisoformat(r[1].replace("Z", "+00:00")) - timedelta(seconds=int(r[2] or 0))
+    return [{"name": n, "time": t.strftime("%Y-%m-%dT%H:%M:%SZ")} for n, t in sorted(seen.items(), key=lambda kv: kv[1])]
 
 
 def fmt_counts(counts: dict) -> str:

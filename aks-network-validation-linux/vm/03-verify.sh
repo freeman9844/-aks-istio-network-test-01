@@ -474,8 +474,8 @@ T12_EXPECT='5→4→3→2, 간격 ≥55초'
 hpa_min() { kube_ok patch hpa hpa-demo -n scale --type merge -p "{\"spec\":{\"minReplicas\":$1}}" >/dev/null; }
 
 restore_hpa() {
-  if kube patch hpa hpa-demo -n scale --type merge -p '{"spec":{"minReplicas":5}}' >/dev/null 2>&1; then
-    log 'hpa-demo minReplicas 5 원복'
+  if kube patch hpa hpa-demo -n scale --type merge -p '{"spec":{"minReplicas":5,"maxReplicas":5}}' >/dev/null 2>&1; then
+    log 'hpa-demo minReplicas·maxReplicas 5 원복'
   else
     log '경고: hpa-demo minReplicas 원복 실패'
   fi
@@ -541,18 +541,24 @@ hpa_test() {
   diff="$(jq '[.counts["1"] // 0, .counts["2"] // 0, .counts["3"] // 0] | max - min' <<<"$za")"
   add T12b '—' 'scale/hpa-demo 영역 분포(DoNotSchedule, minDomains 3)' '기록(판정 없음)' \
     "축소 전 $(fmt_short "$(jq -c .counts <<<"$zb")") → 축소 후 $(fmt_short "$(jq -c .counts <<<"$za")")" INFO \
-    "축소 후 영역별 Pod 수 차이 $diff (Running $(jq -r .running <<<"$za")); Pod 2개·영역 3개라 빈 영역 1개는 필연. 영역 하한은 T12c(minReplicas 3)에서 판정"
+    "축소 후 영역별 Pod 수 차이 $diff (Running $(jq -r .running <<<"$za")); Pod 2개·영역 3개라 빈 영역 1개는 필연. 축소 때 지울 Pod 선택은 T12c 에서 판정"
 }
 
-# ---------- 영역 하한(T12c) ----------
+# ---------- 축소 시 삭제 Pod 선택(T12c) ----------
 
-T12C_TO='scale/hpa-demo (minReplicas 5→3, 3회 반복)'
-T12C_EXPECT='매회 세 영역 모두 Pod ≥1'
+T12C_STARTS=(5 9 12)
+T12C_ROUNDS=2
+T12C_TO='scale/hpa-demo (5·9·12개 → minReplicas 3, 각 2회)'
+T12C_EXPECT='삭제된 Pod = ReplicaSet 삭제 규칙 예측'
 
-hpa_running5() {
-  local z
+hpa_set() { kube_ok patch hpa hpa-demo -n scale --type merge -p "{\"spec\":{\"minReplicas\":$1,\"maxReplicas\":$2}}" >/dev/null; }
+
+hpa_running_n() {
+  local d z
+  d="$(kube_ok get deploy hpa-demo -n scale -o json)" || return 1
+  jq -e --argjson n "$1" '.spec.replicas == $n and (.status.readyReplicas // 0) == $n' <<<"$d" >/dev/null || return 1
   z="$(pod_zones scale app=hpa-demo)" || return 1
-  jq -e '.running == 5 and .pending == 0' <<<"$z" >/dev/null
+  jq -e --argjson n "$1" '.running == $n and .pending == 0 and (.names | length) == $n' <<<"$z" >/dev/null
 }
 
 hpa_at3() {
@@ -560,31 +566,69 @@ hpa_at3() {
   r="$(hpa_replicas)" || return 1
   [[ "$r" == 3 ]] || return 1
   z="$(pod_zones scale app=hpa-demo)" || return 1
-  jq -e '.running == 3' <<<"$z" >/dev/null
+  jq -e '.running == 3 and (.names | length) == 3' <<<"$z" >/dev/null
+}
+
+rs_snapshot() {
+  kube_ok get nodes -o json >"$WORK/nodes.json"
+  kube_ok get pods -n scale -l app=hpa-demo -o json >"$WORK/rs-pods.json"
+  py kube rs_pod_snapshot "$(jq -cn --arg n "@$WORK/nodes.json" --arg p "@$WORK/rs-pods.json" '{nodes: $n, pods: $p}')"
+}
+
+rs_watch_start() {
+  # 서버가 watch 를 끊어도 이어 받도록 반복한다. 행: 이름|deletionTimestamp|유예초 (kubectl 이 탭을 공백으로 바꾸므로 | 사용)
+  (while :; do
+    kube get pods -n scale -l app=hpa-demo -w \
+      -o jsonpath='{.metadata.name}{"|"}{.metadata.deletionTimestamp}{"|"}{.metadata.deletionGracePeriodSeconds}{"\n"}' 2>/dev/null
+    sleep 1
+  done) >>"$1" &
+  RS_WATCH_PID=$!
+}
+
+rs_watch_stop() {
+  [[ -n "${RS_WATCH_PID:-}" ]] || return 0
+  pkill -P "$RS_WATCH_PID" 2>/dev/null || true
+  kill "$RS_WATCH_PID" 2>/dev/null || true
+  wait "$RS_WATCH_PID" 2>/dev/null || true
+  RS_WATCH_PID=""
 }
 
 floor_test() {
-  # 분산 제약은 축소 때 적용되지 않는다. minReplicas 3(=영역 수)으로 축소해도 세 영역에 1개씩 남는지 3회 반복 확인
-  local n zb za line logs="" rounds="$WORK/rounds.jsonl" fv
-  log '== 축소 뒤 영역 하한 (T12c) =='
+  # 분산 제약은 배치 때만 적용되고, 축소 때 지울 Pod 는 ReplicaSet 삭제 규칙이 고른다.
+  # 시작 개수를 바꿔 가며 축소 직전 Pod(노드·Ready 시각·UID 등)를 기록하고, Pod watch 로 잡은 삭제 요청 시각과 규칙 예측을 대조한다
+  local start n snap final ev names rounds="$WORK/rounds.jsonl" fv watch="$WORK/rs-watch.tsv"
+  log '== 축소 시 삭제 Pod 선택 (T12c) =='
   : >"$rounds"
-  for n in 1 2 3; do
-    hpa_min 5
-    if ! wait_cond 300 5 hpa_running5; then
-      add T12c '—' "$T12C_TO" "$T12C_EXPECT" "${n}회 시작 조건 미충족" INCONCLUSIVE "hpa-demo 5개 Running 아님, 5분 대기 초과; $logs"
-      return 0
-    fi
-    zb="$(pod_zones scale app=hpa-demo)"
-    hpa_min 3
-    wait_cond 600 5 hpa_at3 || true
-    za="$(pod_zones scale app=hpa-demo)"
-    line="${n}회 $(fmt_short "$(jq -c .counts <<<"$zb")")→$(fmt_short "$(jq -c .counts <<<"$za")")"
-    log "  $line"
-    logs+="${logs:+, }$line"
-    jq -c .counts <<<"$za" >>"$rounds"
+  for start in "${T12C_STARTS[@]}"; do
+    for ((n = 1; n <= T12C_ROUNDS; n++)); do
+      hpa_set "$start" "$start"
+      if ! wait_cond 600 5 hpa_running_n "$start"; then
+        add T12c '—' "$T12C_TO" "$T12C_EXPECT" "${start}개 ${n}회 시작 조건 미충족" INCONCLUSIVE "hpa-demo ${start}개 Ready 아님, 10분 대기 초과"
+        return 0
+      fi
+      snap="$(rs_snapshot)"
+      log "  ${start}개 ${n}회 축소 전: Pod $(fmt_short "$(jq -c 'map(.zone) | group_by(.) | map({(.[0]): length}) | add' <<<"$snap")"), 노드 $(fmt_short "$(user_zone_counts)")"
+      : >"$watch"
+      rs_watch_start "$watch"
+      sleep 3
+      hpa_set 3 "$start"
+      wait_cond 1500 5 hpa_at3 || true
+      sleep 5
+      rs_watch_stop
+      final="$(rs_snapshot)"
+      names="$(jq -c 'map(.name)' <<<"$snap")"
+      jq -Rn '[inputs | gsub("\\s+$"; "") | split("|")]' "$watch" >"$WORK/rs-watch.json"
+      ev="$(py kube rs_delete_times "$(jq -cn --arg r "@$WORK/rs-watch.json" --argjson n "$names" '{rows: $r, names: $n}')")"
+      log "  ${start}개 ${n}회 삭제 순서: $(jq -r 'map(.name | split("-") | last) | join(" → ")' <<<"$ev")"
+      jq -cn --argjson s "$start" --argjson p "$snap" --argjson d "$ev" --argjson f "$(jq -c 'map(.name)' <<<"$final")" \
+        '{start: $s, pods: $p, deletes: $d, final: $f}' >>"$rounds"
+    done
   done
-  fv="$(py verdict zone_floor_verdict "$(jq -cs '{rounds: ., expected: 3}' "$rounds")")"
-  add T12c '—' "$T12C_TO" "$T12C_EXPECT" "$logs" "$(jq -r .verdict <<<"$fv")" "$(jq -r .reason <<<"$fv")"
+  jq -cs '.' "$rounds" >"$WORK/rounds.json"
+  cp "$WORK/rounds.json" "$VM_ROOT/results/t12c-rounds-$(date +%Y%m%d-%H%M%S).json"
+  fv="$(py verdict deletion_rule_verdict "$(jq -cn --arg r "@$WORK/rounds.json" '{rounds: $r}')")"
+  add T12c '—' "$T12C_TO" "$T12C_EXPECT" "$(jq -r .observed <<<"$fv")" "$(jq -r .verdict <<<"$fv")" \
+    "$(join_note "$(jq -r .reason <<<"$fv")" "사용자 노드 $(fmt_short "$(user_zone_counts)")")"
 }
 
 # ---------- 영역 균형(T13) ----------

@@ -8,7 +8,7 @@ AKS 아키텍처 설계에 넣은 통제가 실제로 동작하는지 작은 샘
 - **app 네임스페이스 PE egress 분리(T16~T23):** `bff-b`는 Blob PE로만, `bff-a`는 Blob2 PE로만 나가도록 NetworkPolicy로 허용합니다. 이때 DNS, istiod, 인터넷, 노드(kubelet) 같은 기본 egress는 막히지 않아야 합니다
 - **API 서버 비공개(T15):** API 서버가 사설 IP로만 해석·접근되고 로컬에서는 접근이 안 되는지 확인
 - **HPA 축소 속도(T12):** `spec.behavior.scaleDown.policies`를 Pods 1 / 60초로 설정. Pod 5개가 최소값 2개까지 1분에 1개씩 줄어드는지 확인
-- **축소 뒤 영역 하한(T12c):** `minReplicas: 3`(영역 수)으로 5 → 3 축소를 3회 반복해 매회 세 영역에 Pod가 남는지 판정. 5 → 2 축소 뒤 분포는 기록만 함(T12b)
+- **축소 대상 Pod(T12c):** `minReplicas: 3`으로 5·9·12개 → 3 축소를 각 2회 실행하고, 실제로 지워진 Pod가 ReplicaSet 삭제 규칙 예측과 같은지 판정. 5 → 2 축소 뒤 분포는 기록만 함(T12b)
 - **영역 균형(T13·T13b):** 영역별 사용자 노드 풀 3개와 Cluster Autoscaler `balance-similar-node-groups=true`, 영역 강제 분산 `DoNotSchedule` + `minDomains: 3`
 - **readinessProbe(T14):** STRICT mTLS에서 Istio probe rewrite
 
@@ -25,67 +25,67 @@ AKS 아키텍처 설계에 넣은 통제가 실제로 동작하는지 작은 샘
 | [`aks-network-validation-linux/`](aks-network-validation-linux/) | **메인.** 로컬 부트스트랩·실행(`local/`), VM 안 단계 스크립트(`vm/`), Python 판정(`aksnetval/`), pytest, 매니페스트(`manifests/`), [실행 안내 README](aks-network-validation-linux/README.md) |
 | [`docs/linux-design-spec.md`](docs/linux-design-spec.md) | Linux판 설계 문서: 관리 VM, Private Cluster, 권한, T15~T23 판정 규칙 |
 | [`docs/linux-implementation-plan.md`](docs/linux-implementation-plan.md) | Linux판 구현 계획(Task 1~10, 9b, 9c) |
-| [`deck/`](deck/) | 설계·결과 장표 PPTX, msdeck YAML 원본, 발표 노트, 렌더링 PNG. 최신은 v7 |
+| [`deck/`](deck/) | 설계·결과 장표 PPTX, msdeck YAML 원본, 발표 노트, 렌더링 PNG. 최신은 v8 |
 | [`evidence/`](evidence/) | 실측 결과(md/json)와 실행 로그. Linux판은 [`evidence/linux/`](evidence/linux/). [색인](evidence/README.md) |
 | [`docs/design-spec.md`](docs/design-spec.md), [`docs/implementation-plan.md`](docs/implementation-plan.md) | 이전 판 설계 문서(T1~T14 토폴로지·정책·판정 규칙의 원본)와 구현 계획 |
 
 ## 장표
 
-[`deck/aksnetval-design-v7.pptx`](deck/aksnetval-design-v7.pptx)(12장, Linux 관리 VM판 결과). 네트워크 검증과 스케일링 검증을 섹션으로 나눴습니다. 이미지를 클릭하면 원본 크기로 열립니다. 발표 노트는 [`deck/aksnetval-design-v7.script.md`](deck/aksnetval-design-v7.script.md)에 있습니다. 이전 순서(8장)는 [`deck/aksnetval-design-v6.pptx`](deck/aksnetval-design-v6.pptx)에 남겨 두었습니다.
+[`deck/aksnetval-design-v8.pptx`](deck/aksnetval-design-v8.pptx)(12장, Linux 관리 VM판 결과). 네트워크 검증과 스케일링 검증을 섹션으로 나눴고, v8에서 T12c 재검증 결과를 반영했습니다. 이미지를 클릭하면 원본 크기로 열립니다. 발표 노트는 [`deck/aksnetval-design-v8.script.md`](deck/aksnetval-design-v8.script.md)에 있습니다. 이전 판은 [`v7`](deck/aksnetval-design-v7.pptx)(T12c 5→3 3회 결과), [`v6`](deck/aksnetval-design-v6.pptx)(8장)에 남겨 두었습니다.
 
 ### 공통
 
 #### 1. 검증 샘플 구성 — Private AKS · NSG · Istio · NetworkPolicy
 
-<a href="deck/aksnetval-design-v7_render/slide_01.png"><img src="deck/aksnetval-design-v7_render/slide_01.png" alt="슬라이드 1" width="800"></a>
+<a href="deck/aksnetval-design-v8_render/slide_01.png"><img src="deck/aksnetval-design-v8_render/slide_01.png" alt="슬라이드 1" width="800"></a>
 
 ### 01 네트워크 검증 (T1~T11 · T14~T23)
 
 #### 2. 01 네트워크 검증 (섹션)
 
-<a href="deck/aksnetval-design-v7_render/slide_02.png"><img src="deck/aksnetval-design-v7_render/slide_02.png" alt="슬라이드 2" width="800"></a>
+<a href="deck/aksnetval-design-v8_render/slide_02.png"><img src="deck/aksnetval-design-v8_render/slide_02.png" alt="슬라이드 2" width="800"></a>
 
 #### 3. 네트워크 검증 매트릭스 — 22건, 차단 테스트마다 허용 대조군
 
-<a href="deck/aksnetval-design-v7_render/slide_03.png"><img src="deck/aksnetval-design-v7_render/slide_03.png" alt="슬라이드 3" width="800"></a>
+<a href="deck/aksnetval-design-v8_render/slide_03.png"><img src="deck/aksnetval-design-v8_render/slide_03.png" alt="슬라이드 3" width="800"></a>
 
 #### 4. 결과 ① 네트워크 통제 — T1~T11·T14 13건 모두 PASS
 
-<a href="deck/aksnetval-design-v7_render/slide_04.png"><img src="deck/aksnetval-design-v7_render/slide_04.png" alt="슬라이드 4" width="800"></a>
+<a href="deck/aksnetval-design-v8_render/slide_04.png"><img src="deck/aksnetval-design-v8_render/slide_04.png" alt="슬라이드 4" width="800"></a>
 
 #### 5. PE egress 분리 — bff별 전용 PE만 허용, 기본 egress 유지
 
-<a href="deck/aksnetval-design-v7_render/slide_05.png"><img src="deck/aksnetval-design-v7_render/slide_05.png" alt="슬라이드 5" width="800"></a>
+<a href="deck/aksnetval-design-v8_render/slide_05.png"><img src="deck/aksnetval-design-v8_render/slide_05.png" alt="슬라이드 5" width="800"></a>
 
 #### 6. 네트워크 결과 정리 — 22 PASS, PRD 시사점과 남은 한계
 
-<a href="deck/aksnetval-design-v7_render/slide_06.png"><img src="deck/aksnetval-design-v7_render/slide_06.png" alt="슬라이드 6" width="800"></a>
+<a href="deck/aksnetval-design-v8_render/slide_06.png"><img src="deck/aksnetval-design-v8_render/slide_06.png" alt="슬라이드 6" width="800"></a>
 
 ### 02 스케일링 검증 (T12~T13b)
 
 #### 7. 02 스케일링 검증 (섹션)
 
-<a href="deck/aksnetval-design-v7_render/slide_07.png"><img src="deck/aksnetval-design-v7_render/slide_07.png" alt="슬라이드 7" width="800"></a>
+<a href="deck/aksnetval-design-v8_render/slide_07.png"><img src="deck/aksnetval-design-v8_render/slide_07.png" alt="슬라이드 7" width="800"></a>
 
 #### 8. 스케일링 검증 매트릭스 — T12~T13b, 판정 규칙
 
-<a href="deck/aksnetval-design-v7_render/slide_08.png"><img src="deck/aksnetval-design-v7_render/slide_08.png" alt="슬라이드 8" width="800"></a>
+<a href="deck/aksnetval-design-v8_render/slide_08.png"><img src="deck/aksnetval-design-v8_render/slide_08.png" alt="슬라이드 8" width="800"></a>
 
 #### 9. 스케일링 검증 — HPA 축소 속도와 영역 균형
 
-<a href="deck/aksnetval-design-v7_render/slide_09.png"><img src="deck/aksnetval-design-v7_render/slide_09.png" alt="슬라이드 9" width="800"></a>
+<a href="deck/aksnetval-design-v8_render/slide_09.png"><img src="deck/aksnetval-design-v8_render/slide_09.png" alt="슬라이드 9" width="800"></a>
 
 #### 10. 결과 ② 스케일링 — HPA 1분에 1개 축소, 영역 2/2/2 확장
 
-<a href="deck/aksnetval-design-v7_render/slide_10.png"><img src="deck/aksnetval-design-v7_render/slide_10.png" alt="슬라이드 10" width="800"></a>
+<a href="deck/aksnetval-design-v8_render/slide_10.png"><img src="deck/aksnetval-design-v8_render/slide_10.png" alt="슬라이드 10" width="800"></a>
 
 #### 11. 결과 ③ PRD 권장 YAML — 강제 분산 2/2/2, minReplicas 3 축소 1/1/1
 
-<a href="deck/aksnetval-design-v7_render/slide_11.png"><img src="deck/aksnetval-design-v7_render/slide_11.png" alt="슬라이드 11" width="800"></a>
+<a href="deck/aksnetval-design-v8_render/slide_11.png"><img src="deck/aksnetval-design-v8_render/slide_11.png" alt="슬라이드 11" width="800"></a>
 
 #### 12. 스케일링 결과 정리 — 4 PASS + T12b INFO, 전체 26 PASS
 
-<a href="deck/aksnetval-design-v7_render/slide_12.png"><img src="deck/aksnetval-design-v7_render/slide_12.png" alt="슬라이드 12" width="800"></a>
+<a href="deck/aksnetval-design-v8_render/slide_12.png"><img src="deck/aksnetval-design-v8_render/slide_12.png" alt="슬라이드 12" width="800"></a>
 
 ## 검증 구성
 
@@ -134,7 +134,7 @@ AKS Azure CNI powered by Cilium은 기본 설정(`policy-cidr-match-mode` 미설
 
 ## 테스트 매트릭스와 실측 결과
 
-네트워크 항목(T1~T11, T14~T23)은 `app-egress-nodes`를 추가한 뒤 새 클러스터에서 `--only network`로 실행한 [`evidence/linux/04-node-egress-fix_20261120-082121.md`](evidence/linux/04-node-egress-fix_20261120-082121.md), 스케일 항목(T12~T13b)은 전체 실행 [`evidence/linux/01-full-run_20261120-050457.md`](evidence/linux/01-full-run_20261120-050457.md) 결과입니다. 이번 변경은 app 네임스페이스 egress 정책만 다루므로 스케일 항목은 다시 실행하지 않았습니다.
+네트워크 항목(T1~T11, T14~T23)은 `app-egress-nodes`를 추가한 뒤 새 클러스터에서 `--only network`로 실행한 [`evidence/linux/04-node-egress-fix_20261120-082121.md`](evidence/linux/04-node-egress-fix_20261120-082121.md), 스케일 항목(T12·T12b·T13·T13b)은 전체 실행 [`evidence/linux/01-full-run_20261120-050457.md`](evidence/linux/01-full-run_20261120-050457.md), T12c는 새 클러스터에서 `--only floor`로 다시 실행한 [`evidence/linux/05-t12c-rules_20261120-131301.md`](evidence/linux/05-t12c-rules_20261120-131301.md) 결과입니다. 이번 변경은 app 네임스페이스 egress 정책만 다루므로 스케일 항목은 다시 실행하지 않았습니다.
 
 | ID | 출발 → 대상 | 검증 통제 | 기대 | 실측 | 판정 |
 |---|---|---|---|---|---|
@@ -160,7 +160,7 @@ AKS Azure CNI powered by Cilium은 기본 설정(`policy-cidr-match-mode` 미설
 | T23 | bff-b → 다른 노드 :10250(kubelet) | 기본 egress 유지(노드) | 연결 성공(≠000) | 401, 대조군 probe 401 | PASS |
 | T12 | HPA minReplicas 5 → 2 | scaleDown Pods 1 / 60s | 5→4→3→2, 간격 55초 이상 | 5,4,3,2, 간격 61초·62초 | PASS |
 | T12b | T12 축소 전·후 `hpa-demo` 분포 | 2개로 줄인 뒤 분포 기록 | 기록(판정 없음) | 1/2/2 → 0/1/1 | INFO |
-| T12c | `hpa-demo` minReplicas 5 → 3, 3회 | 영역 수만큼 남기면 영역마다 1개 이상 | 매회 세 영역 모두 ≥1 | 3회 모두 1/2/2 → **1/1/1** | PASS |
+| T12c | `hpa-demo` 5·9·12개 → minReplicas 3, 각 2회 | 축소 대상 Pod 선택(ReplicaSet 삭제 규칙) | 지워진 Pod = 규칙 예측 | 1/2/2·3/3/3·4/4/4 → 6회 모두 1/1/1, 삭제 34건 모두 예측과 일치(Ready 동률 비이행 비교 4건) | PASS |
 | T13 | `zone-fill` 6개 | CAS 영역 균형 | 영역별 노드 차이 1 이하 | 1/1/1 → 2/2/2, 108초 만에 6개 모두 Running | PASS |
 | T13b | `zone-spread` 6개(DoNotSchedule, minDomains 3) | 강제 분산 + CAS | Pod 2/2/2, Pending 없음 | Pod 2/2/2, 노드 1/1/1 → 2/2/2, 110초 | PASS |
 | T14 | kubelet → web·bff readinessProbe | Istio probe rewrite(STRICT mTLS) | rewrite 후 Ready | Ready 4/4, `15020 /app-health/app/readyz` 4/4 | PASS |
@@ -168,7 +168,9 @@ AKS Azure CNI powered by Cilium은 기본 설정(`policy-cidr-match-mode` 미설
 
 T13의 근거는 TriggeredScaleUp 이벤트 1건입니다. 한 번의 확장에서 `userz1/2/3 1->2`가 함께 일어났습니다. 이벤트는 Pod별로 중복 제거되어 일부만 보일 수 있으므로 T13b는 Pod·노드 수로만 판정합니다.
 
-T12b의 0/1/1은 Pod 2개를 세 영역에 둔 결과라 한 영역이 비는 것이 당연하고, 차이 1은 `maxSkew: 1`도 만족합니다. 그래서 기록만 하고 영역 하한은 T12c로 판정합니다.
+T12b의 0/1/1은 Pod 2개를 세 영역에 둔 결과라 한 영역이 비는 것이 당연하고, 차이 1은 `maxSkew: 1`도 만족합니다. 그래서 기록만 합니다.
+
+T12c의 1/1/1은 영역마다 노드가 1대이고 HPA가 1분에 1개씩 줄여, 매번 "같은 노드에 Pod가 많은 쪽부터" 규칙이 다시 적용된 결과입니다. 같은 노드 혼잡도에서는 Ready 시각의 log2 구간(같으면 UID 순)으로 갈렸습니다. 판정은 Pod 감시(`kubectl get -w`)로 기록한 삭제 요청 시각과 Pod 이름으로 했습니다. `SuccessfulDelete` 이벤트는 비슷한 이벤트가 합쳐지며 메시지가 덮어써져 9개 이상 축소에서는 쓸 수 없었습니다.
 
 ### 판정 원칙
 
@@ -179,7 +181,7 @@ T12b의 0/1/1은 Pod 2개를 세 영역에 둔 결과라 한 영역이 비는 �
 - T20은 bff-b Pod가 NetworkPolicy 생성 이후 기동했을 때만 근거로 인정합니다. 타임스탬프가 초 단위라 `02-apply.sh`는 정책 적용 후 다음 초로 넘긴 뒤 app을 재시작합니다.
 - T22·T23은 대조군(정책 없는 `nomesh/probe`에서 같은 노드로 접속)이 연결에 실패하거나 실행되지 않으면 `INCONCLUSIVE`입니다.
 - 검증 함수가 중간에 중단되면 그 함수가 맡은 나머지 Id마다 `INCONCLUSIVE` 행을 남깁니다. 요약에서 누락된 테스트가 PASS처럼 보이지 않게 하기 위해서입니다.
-- T12c는 3회 중 한 번이라도 빈 영역이 있으면 FAIL, Running이 3개가 아니면 `INCONCLUSIVE`입니다.
+- T12c는 지워진 Pod 중 하나라도 ReplicaSet 삭제 규칙 예측(삭제 시각 −3~+1초 범위, 같은 순위 동률 포함)에 없으면 FAIL, 삭제 기록이나 축소 전 스냅샷이 없으면 `INCONCLUSIVE`입니다. 2초 안의 삭제는 한 번의 동기화로 보고 한 번 정렬해 앞에서부터 고릅니다. Ready·생성 시각이 같은 Pod는 완전 동률이 되어 비교가 비이행적일 수 있으므로, 1개 삭제에서는 정렬 입력 순서에 따라 맨 앞에 올 수 있는 Pod를 모두 후보로 인정합니다.
 - T13은 Pending Pod가 남으면 FAIL입니다. 노드가 늘지 않았거나 시작 상태(풀마다 1대)를 만들지 못하면 `INCONCLUSIVE`입니다.
 - T13b는 노드 1/1/1에서 시작해 15분 안에 Pending 없이 영역별 Pod 수 차이가 1 이하면 PASS, Pending이 남으면 FAIL입니다.
 - T14는 probe 없음, rewrite 안 됨, Not Ready 중 하나라도 있으면 FAIL입니다.
@@ -199,7 +201,7 @@ T12b의 0/1/1은 Pod 2개를 세 영역에 둔 결과라 한 영역이 비는 �
 | HPA | Pods 1 / 60초 정책으로 약 60초 간격으로 축소(T12) | 축소 속도 제한은 `behavior` 정책으로 구현 |
 | CAS 영역 균형 | 영역 레이블이 다른 풀도 유사 그룹으로 묶여 함께 확장, 1/1/1 → 2/2/2(T13) | 영역별 풀 + `balance-similar-node-groups` 조합이 유효 |
 | 강제 분산 + CAS | `DoNotSchedule`·`minDomains: 3`에서 Pending Pod를 보고 CAS가 세 영역을 확장, Pod 2/2/2(T13b) | PRD 권장 `topologySpreadConstraints`를 그대로 사용 가능 |
-| 축소 뒤 분포 | `minReplicas: 3`으로 5 → 3 축소, 3회 모두 1/1/1(T12c) | `minReplicas` ≥ 영역 수(3) 권장 |
+| 축소 대상 Pod | 5·9·12 → 3 축소 6회 모두 1/1/1, 삭제 34건 모두 ReplicaSet 규칙 예측과 일치(T12c) | 분산 제약은 축소 때 적용되지 않으므로 축소 뒤 영역 균등은 보장되지 않음. 필요하면 Descheduler로 재분산 |
 | readinessProbe | STRICT mTLS에서도 `15020 /app-health/...` rewrite로 Ready(T14) | probe를 추가해도 별도 mTLS 예외 불필요 |
 
 ## 한계
@@ -209,7 +211,7 @@ T12b의 0/1/1은 Pod 2개를 세 영역에 둔 결과라 한 영역이 비는 �
 - T12는 축소 속도 정책만 검증합니다. 안정화 창(300초)은 검증하지 않습니다.
 - T13은 확장만 판정하고 축소는 관찰만 합니다. 영역별 정확한 노드 수는 기존 Pod 배치에 따라 달라질 수 있습니다.
 - T14는 rewrite된 probe로 Ready가 되는 것만 확인합니다. 앱이 실패할 때 NotReady로 바뀌는 음성 시나리오는 검증하지 않습니다.
-- T12c의 1/1/1은 3회 관찰이지 보장이 아닙니다. 분산 제약은 축소 때 적용되지 않고, 어느 Pod가 지워지는지는 ReplicaSet 규칙(같은 노드에 몰린 Pod, 최근 생성 Pod 우선 등)에 따릅니다. 확장 때 추가된 Pod부터 지워진 결과로 해석합니다(추정).
+- T12c의 1/1/1은 영역당 노드 1대·1개씩 축소 조건의 결과입니다. 영역에 노드가 여러 대이거나 한 번에 여러 개를 줄이면(한 번 정렬 후 노드별 개수를 다시 세지 않음) 1/0/2처럼 한 영역이 빌 수 있습니다. 이번 실행에서는 한 번에 2개 삭제가 1회 있었습니다.
 - T15의 로컬 측 근거는 실행한 로컬 환경(사내망, VNet 미연결)에서의 결과입니다.
 - 시스템 노드 1대와 Gateway 기본 배치는 검증용 구성입니다. PRD에서는 Gateway 전용 `ingress` 풀을 권장합니다.
 - 공개 저장소라 로그의 로컬 경로는 `<repo>`, Storage 계정 이름은 `staksnetval<hash>`, 구독 이름은 `<subscription>`, API 서버 사설 FQDN은 `<cluster>.<guid>.privatelink…`로 마스킹했습니다.

@@ -81,7 +81,7 @@ local/run.sh verify                # 약 40분(T13b 의 CAS 축소 대기 포함
 | T23 | bff-b → 다른 노드 kubelet(:10250) | ≠000 | 기본 egress 유지(노드, Cilium remote-node 엔터티). 대조군 nomesh/probe |
 | T12 | hpa-demo minReplicas 5→2 | 1분에 1개씩 축소 | HPA scaleDown 정책 |
 | T12b | hpa-demo 축소 후 영역 분포 | 기록 | (판정 없음) Pod 2개라 빈 영역 1개는 필연 |
-| T12c | hpa-demo minReplicas 5→3, 3회 | 매회 세 영역 ≥1 | 축소 뒤 영역 하한 |
+| T12c | hpa-demo 5·9·12개 → minReplicas 3, 각 2회 | 삭제된 Pod = ReplicaSet 삭제 규칙 예측 | 축소 때 어떤 Pod 가 지워지는지(영역 균등은 보장 대상 아님) |
 | T13 | zone-fill 6개 | 영역별 노드 차이 ≤1 | CAS 영역 균형 확장 |
 | T13b | zone-spread 6개(DoNotSchedule, minDomains 3) | Pod 2/2/2, Pending 없음 | 영역 강제 분산 + CAS |
 | T14 | kubelet readinessProbe | Ready + 15020 rewrite | Istio probe rewrite |
@@ -147,7 +147,7 @@ local/run.sh verify                # 약 40분(T13b 의 CAS 축소 대기 포함
 | T23 | app/bff-b | 다른 노드 :10250 (kubelet) | 401 | PASS | 대조군 nomesh/probe=401 |
 | T12 | — | hpa-demo minReplicas 5→2 | 5,4,3,2 (61·62초 간격) | PASS |  |
 | T12b | — | hpa-demo 영역 분포 | 1/2/2 → 0/1/1 | INFO | Pod 2개·영역 3개 |
-| T12c | — | hpa-demo minReplicas 5→3, 3회 | 매회 1/2/2 → 1/1/1 | PASS |  |
+| T12c | — | hpa-demo 5·9·12개 → minReplicas 3, 각 2회 | 1/2/2·3/3/3·4/4/4 → 6회 모두 1/1/1 | PASS | 삭제 34건 모두 ReplicaSet 삭제 규칙 예측과 일치(Ready 동률 비이행 비교 4건). 1/1/1 은 영역당 노드 1개·1개씩 축소에서 노드 혼잡 규칙 결과이며, 축소 뒤 영역 균등은 보장되지 않음 |
 | T13 | — | userz1/2/3 | 노드 1/1/1 → 2/2/2 | PASS | balanceSimilarNodeGroups=true |
 | T13b | — | zone-spread 6개 | Pod 2/2/2, 노드 1/1/1 → 2/2/2 | PASS | Running 6/6, 110초 |
 | T14 | kubelet | readinessProbe 4개 | Ready 4/4, rewrite 4/4 | PASS |  |

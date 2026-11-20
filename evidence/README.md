@@ -15,8 +15,9 @@
 | 02 | `02-network-rerun_20261120-052231` | `--only network`(T1~T11, T14~T21) | `02-apply.sh`가 `sleep 2` 후 재시작하도록 고치고 apply를 다시 실행한 뒤 **20건 PASS**(T20 포함) |
 | 03 | `03-node-egress-fail_20261120-075659` | `--only network`(T1~T11, T14~T23), 새 클러스터 | 20건 PASS, **T22·T23 FAIL**(bff-b → 노드 :10250이 000, 대조군 probe 401). Cilium 기본값에서 NetworkPolicy `ipBlock`이 노드 IP에 매칭되지 않음 |
 | 04 | `04-node-egress-fix_20261120-082121` | `--only network`(T1~T11, T14~T23) | CiliumNetworkPolicy `app-egress-nodes`(`toEntities: [host, remote-node]`) 추가 후 **22건 PASS**(T22·T23 401) |
+| 05 | `05-t12c-rules_20261120-131301` | `--only floor`(T12c), 새 클러스터 | 5·9·12 → 3 각 2회, 6회 모두 1/1/1, 삭제 34건 모두 ReplicaSet 규칙 예측과 일치 → **PASS**. 첫 판정은 Ready 동률 비이행 비교 1건 때문에 FAIL이었고, 판정 로직을 고친 뒤 같은 원시 데이터(`.rounds.json`)로 재판정 |
 
-종합 **26건 PASS + T12b INFO**는 네트워크 항목은 04, 스케일 항목(T12·T12b·T12c·T13·T13b)은 01의 결과입니다.
+종합 **26건 PASS + T12b INFO**는 네트워크 항목은 04, 스케일 항목은 T12·T12b·T13·T13b가 01, T12c가 05의 결과입니다.
 
 ### linux/logs/
 

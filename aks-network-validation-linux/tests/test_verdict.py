@@ -5,6 +5,7 @@ import pytest
 
 from aksnetval.verdict import (
     api_private_verdict,
+    deletion_rule_verdict,
     hpa_verdict,
     http_verdict,
     is_pe_ip,
@@ -13,11 +14,12 @@ from aksnetval.verdict import (
     pod_spread_verdict,
     probe_rewrite_verdict,
     require,
+    rs_possible_first,
+    rs_victims,
     started_after,
     tls_verdict,
     node_reach_verdict,
     zone_balance_verdict,
-    zone_floor_verdict,
 )
 
 
@@ -242,24 +244,153 @@ def test_probe_no_pods_inconclusive():
     assert probe_rewrite_verdict([])["verdict"] == "INCONCLUSIVE"
 
 
-# T12c 영역 하한
-def test_floor_pass():
-    rounds = [{"1": 1, "2": 1, "3": 1}] * 3
-    assert zone_floor_verdict(rounds, 3)["verdict"] == "PASS"
+# T12c ReplicaSet 삭제 규칙 예측
+T0 = datetime(2026, 11, 20, 1, 0, 0)
 
 
-def test_floor_empty_zone_fail():
-    r = zone_floor_verdict([{"1": 1, "2": 1, "3": 1}, {"1": 2, "3": 1}], 3)
+def _iso(sec_before, base=T0):
+    return (base - timedelta(seconds=sec_before)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _rp(name, uid, node, zone, ready_age, created_age=None, ready=True, restarts=0, cost=0, base=T0):
+    return {"name": name, "uid": uid, "node": node, "zone": zone, "phase": "Running", "ready": ready,
+            "ready_time": _iso(ready_age, base) if ready else None,
+            "created": _iso(created_age if created_age is not None else ready_age + 5, base),
+            "restarts": restarts, "cost": cost}
+
+
+NOW_ISO = _iso(0)
+
+
+def test_rs_victim_prefers_pod_on_doubled_node():
+    pods = [_rp("a", "u1", "n1", "1", 10), _rp("b", "u2", "n2", "2", 1000), _rp("c", "u3", "n2", "2", 2000)]
+    r = rs_victims(pods, NOW_ISO)
+    assert r["victims"] == ["b"]
+    assert r["rule"] == "6"   # b·c 는 같은 노드(5번 동률), Ready 로그 구간이 다름
+
+
+def test_rs_victim_same_log_bucket_uses_uid_not_newest():
+    # 100초·120초는 log2(ns) 구간이 같아 UID 가 앞선 y(더 오래됨)가 삭제 대상
+    pods = [_rp("x", "b", "n1", "1", 100), _rp("y", "a", "n2", "2", 120)]
+    r = rs_victims(pods, NOW_ISO)
+    assert r["victims"] == ["y"]
+    assert r["rule"] == "6-UID"
+
+
+def test_rs_victim_newer_bucket_wins_over_uid():
+    pods = [_rp("x", "z", "n1", "1", 10), _rp("y", "a", "n2", "2", 1000)]
+    assert rs_victims(pods, NOW_ISO)["victims"] == ["x"]
+
+
+def test_rs_victim_rank_beats_ready_time():
+    pods = [_rp("lone", "a", "n1", "1", 5), _rp("d1", "b", "n2", "2", 5000), _rp("d2", "c", "n2", "2", 6000)]
+    r = rs_victims(pods, NOW_ISO)
+    assert r["victims"] == ["d1"] or r["victims"] == ["d2"]
+    assert "lone" not in r["victims"]
+
+
+def test_rs_victim_not_ready_first():
+    pods = [_rp("r", "a", "n1", "1", 10), _rp("nr", "b", "n2", "2", 0, created_age=5000, ready=False)]
+    r = rs_victims(pods, NOW_ISO)
+    assert r["victims"] == ["nr"] and r["rule"] == "3"
+
+
+def test_rs_victim_lower_deletion_cost_first():
+    pods = [_rp("a", "a", "n1", "1", 10, cost=10), _rp("b", "b", "n2", "2", 5000, cost=-1)]
+    assert rs_victims(pods, NOW_ISO) == {"victims": ["b"], "rule": "4"}
+
+
+def test_rs_victim_equal_ready_time_uses_restarts():
+    pods = [_rp("a", "a", "n1", "1", 300, restarts=0), _rp("b", "b", "n2", "2", 300, restarts=2)]
+    assert rs_victims(pods, NOW_ISO) == {"victims": ["b"], "rule": "7"}
+
+
+def test_rs_victim_equal_ready_uses_creation_log_bucket():
+    pods = [_rp("a", "a", "n1", "1", 300, created_age=5000), _rp("b", "b", "n2", "2", 300, created_age=400)]
+    assert rs_victims(pods, NOW_ISO) == {"victims": ["b"], "rule": "8"}
+
+
+def _round_5_to_3(first="p4", second="p5", final=("p1", "p2", "p3")):
+    # 노드 1/1/1, 1/2/2 에서 시작. p4·p5 는 확장 때 추가(400초 전 Ready), 나머지는 1시간 전
+    pods = [_rp("p1", "u1", "n1", "1", 3600), _rp("p2", "u2", "n2", "2", 3600), _rp("p3", "u3", "n3", "3", 3600),
+            _rp("p4", "u4", "n2", "2", 400), _rp("p5", "u5", "n3", "3", 400)]
+    deletes = [{"name": first, "time": _iso(0)}, {"name": second, "time": _iso(-61)}]
+    return {"start": 5, "pods": pods, "deletes": deletes, "final": list(final)}
+
+
+def test_deletion_rule_pass_and_distribution():
+    r = deletion_rule_verdict([_round_5_to_3()] * 2)
+    assert r["verdict"] == "PASS"
+    assert r["observed"] == "5개 1/2/2→1/1/1, 5개 1/2/2→1/1/1"
+    assert "4건" in r["reason"] and "일치" in r["reason"]
+
+
+def test_deletion_rule_mismatch_fail():
+    r = deletion_rule_verdict([_round_5_to_3(first="p2", second="p5", final=("p1", "p4", "p3"))])
     assert r["verdict"] == "FAIL"
-    assert "2회" in r["reason"]
+    assert "p2" in r["reason"] and "p4" in r["reason"]
 
 
-def test_floor_count_mismatch_inconclusive():
-    assert zone_floor_verdict([{"1": 1, "2": 1}], 3)["verdict"] == "INCONCLUSIVE"
+def test_deletion_rule_log_boundary_counts_as_match():
+    # 2^37 ns ≈ 137.44초. x 는 이벤트 시각에 136.5~138초 → 판정 창 안에서 구간 36/37 이 갈림
+    pods = [_rp("x", "b", "n1", "1", 137), _rp("y", "a", "n1", "1", 200), _rp("z", "c", "n2", "2", 5000),
+            _rp("w", "d", "n3", "3", 5000)]
+    rnd = {"start": 4, "pods": pods, "deletes": [{"name": "y", "time": _iso(0)}], "final": ["x", "z", "w"]}
+    r = deletion_rule_verdict([rnd])
+    assert r["verdict"] == "PASS"
+    assert "경계" in r["reason"]
 
 
-def test_floor_no_rounds_inconclusive():
-    assert zone_floor_verdict([], 3)["verdict"] == "INCONCLUSIVE"
+@pytest.mark.parametrize("change", [
+    {"deletes": [{"name": "p4", "time": _iso(0)}]},                        # 삭제 이벤트 부족
+    {"deletes": [{"name": "zz", "time": _iso(0)}, {"name": "p5", "time": _iso(-61)}]},  # 스냅숏에 없는 Pod
+    {"final": ["p1", "p2", "p9"]},                                          # 최종 Pod 가 예상과 다름
+])
+def test_deletion_rule_incomplete_inconclusive(change):
+    assert deletion_rule_verdict([{**_round_5_to_3(), **change}])["verdict"] == "INCONCLUSIVE"
+
+
+def test_deletion_rule_no_rounds_inconclusive():
+    assert deletion_rule_verdict([])["verdict"] == "INCONCLUSIVE"
+
+
+def _round_batch(gap):
+    # 노드 1/1/1, Pod 1/2/2. 영역 2 의 p2·p4 가 가장 최근 Ready
+    pods = [_rp("p1", "u1", "n1", "1", 3600), _rp("p2", "u2", "n2", "2", 10), _rp("p4", "u4", "n2", "2", 12),
+            _rp("p3", "u3", "n3", "3", 3600), _rp("p5", "u5", "n3", "3", 3600)]
+    deletes = [{"name": "p2", "time": _iso(0)}, {"name": "p4", "time": _iso(-gap)}]
+    return {"start": 5, "pods": pods, "deletes": deletes, "final": ["p1", "p3", "p5"]}
+
+
+def test_deletion_rule_batch_sorts_once_and_can_empty_zone():
+    # 같은 동기화에서 2개를 지우면 한 번 정렬한 상위 2개(노드 몰림 재계산 없음) → 영역 2 가 비는 1/0/2
+    r = deletion_rule_verdict([_round_batch(gap=1)])
+    assert r["verdict"] == "PASS"
+    assert r["observed"] == "5개 1/2/2→1/0/2"
+    assert "한 번에 2개" in r["reason"]
+
+
+def test_deletion_rule_separate_steps_recount_node_rank():
+    # 60초 간격의 1개씩 축소라면 첫 삭제 뒤 n2 몰림이 풀려 두 번째는 영역 3 에서 나와야 함
+    assert deletion_rule_verdict([_round_batch(gap=61)])["verdict"] == "FAIL"
+
+
+def test_deletion_rule_nontransitive_tie_accepts_tied_pod():
+    # a·c 는 Ready·생성 시각이 같아 완전 동률, b 는 Ready 가 1초 늦어 같은 로그 구간 → UID 비교(a < b < c).
+    # a = c 인데 a < b < c 라 비교가 비이행적이고, Go 정렬 결과는 입력 순서에 따라 c 가 맨 앞이 될 수 있다
+    pods = [_rp("a", "u2", "n1", "1", 500, created_age=501), _rp("b", "u5", "n2", "2", 499, created_age=501),
+            _rp("c", "ue", "n3", "3", 500, created_age=501), _rp("old", "u0", "n4", "1", 5000)]
+    rnd = {"start": 4, "pods": pods, "deletes": [{"name": "c", "time": _iso(0)}], "final": ["a", "b", "old"]}
+    r = deletion_rule_verdict([rnd])
+    assert r["verdict"] == "PASS"
+    assert "비이행" in r["reason"]
+
+
+def test_rs_possible_first_includes_tie_blocked_pod():
+    # 실측 12개 1회차 축약: b 가 c 보다 앞서지만, c 와 완전 동률인 a 가 b 를 막아 c 가 맨 앞이 될 수 있음
+    pods = [_rp("b", "u5", "n2", "2", 499, created_age=501), _rp("c", "ue", "n3", "3", 500, created_age=501),
+            _rp("a", "u2", "n1", "1", 500, created_age=501), _rp("old", "u0", "n4", "1", 5000)]
+    assert rs_possible_first(pods, NOW_ISO) == {"a", "b", "c"}
 
 
 def test_cli_string_result(capsys):
