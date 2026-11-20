@@ -5,13 +5,10 @@ AKS 아키텍처 설계에 넣은 통제가 실제로 동작하는지 작은 샘
 - **네트워크 통제(T1~T11):** NSG, Istio `AuthorizationPolicy`, STRICT mTLS, Cilium `NetworkPolicy`, Blob Private Endpoint
 - **HPA 축소 속도(T12):** `spec.behavior.scaleDown.policies`를 Pods 1 / 60초로 설정. Pod 5개가 최소값 2개까지 1분에 1개씩 줄어드는지 확인
 - **영역 균형(T13):** 영역별 사용자 노드 풀 3개와 Cluster Autoscaler `balance-similar-node-groups=true`
-- **PRD 권장 YAML 반영(v3 추가):** 영역 강제 분산 `DoNotSchedule` + `minDomains: 3`과 CAS 확장(T13b), HPA 축소 뒤 영역 분포 관찰(T12b), STRICT mTLS에서 readinessProbe rewrite(T14), `hpa-demo`의 `replicas` 생략
+- **PRD 권장 YAML:** 영역 강제 분산 `DoNotSchedule` + `minDomains: 3`과 CAS 확장(T13b), STRICT mTLS에서 readinessProbe rewrite(T14), `hpa-demo`의 `replicas` 생략
+- **축소 뒤 영역 하한(T12c):** `minReplicas: 3`(영역 수)으로 5 → 3 축소를 3회 반복해 매회 세 영역에 Pod가 남는지 판정. 5 → 2 축소 뒤 분포는 기록만 함(T12b)
 
-- **축소 뒤 영역 하한(v4 추가, T12c):** `minReplicas: 3`(영역 수)으로 5 → 3 축소를 3회 반복해 매회 세 영역에 Pod가 남는지 판정
-
-**결과(v4 재검증): 17건 PASS + 관찰 1건(T12b INFO)**(2026-11-20, koreacentral). v3는 16건 PASS + INFO 1, v1 최종 실행은 14건 PASS였습니다. 검증 후 리소스 그룹은 삭제했습니다.
-
-> **T12b 해석 정정(v4):** v3에서 5개 → 2개 축소 뒤 1/0/1을 "주요 발견"으로 적었지만, Pod 2개를 영역 3개에 두면 한 영역은 반드시 비고 차이 1은 `maxSkew: 1`도 만족합니다. 그래서 결함의 근거가 아닙니다. 실제 질문인 "영역 수만큼 남기면 영역마다 1개씩 남는가"는 T12c로 따로 검증했고, `minReplicas: 3`으로 3회 축소해 **매회 1/1/1**이었습니다. 다만 `topologySpreadConstraints`는 축소 때 적용되지 않으므로 보장된 동작은 아니며, 장애 뒤 재분산은 Descheduler 검토가 필요합니다(PoC 필요).
+**결과: 17건 PASS + 기록 1건(T12b INFO)**(2026-11-20, koreacentral). 검증 후 리소스 그룹은 삭제했습니다.
 
 ## 저장소 구성
 
@@ -21,18 +18,11 @@ AKS 아키텍처 설계에 넣은 통제가 실제로 동작하는지 작은 샘
 | [`docs/design-spec.md`](docs/design-spec.md) | 설계 문서: 토폴로지, 주소, 정책, 테스트 매트릭스, 판정 규칙 |
 | [`docs/implementation-plan.md`](docs/implementation-plan.md) | 구현 계획(Task 1~6) |
 | [`deck/`](deck/) | 설계·결과 장표 PPTX, msdeck YAML 원본, 발표 노트, 렌더링 PNG |
-| [`evidence/`](evidence/) | 실측 결과(md/json) 11회분과 실행 로그. [색인](evidence/README.md) |
+| [`evidence/`](evidence/) | 실측 결과(md/json)와 실행 로그. [색인](evidence/README.md) |
 
 ## 장표
 
-| 파일 | 내용 |
-|---|---|
-| [`deck/aksnetval-design-v4.pptx`](deck/aksnetval-design-v4.pptx) | **최신본, 7장.** T12c 추가 재검증. 6장 가운데 열을 T12b(기록)·T12c(1/1/1)로 정정 |
-| [`deck/aksnetval-design-v3.pptx`](deck/aksnetval-design-v3.pptx) | v3, 7장. PRD 권장 YAML 반영(T12b 해석은 v4에서 정정) |
-| [`deck/aksnetval-design-v2.pptx`](deck/aksnetval-design-v2.pptx) | v1 결과본, 6장 |
-| [`deck/aksnetval-design.pptx`](deck/aksnetval-design.pptx) | 설계 단계 원본, 3장 |
-
-이미지를 클릭하면 원본 크기로 열립니다.
+[`deck/aksnetval-design-v4.pptx`](deck/aksnetval-design-v4.pptx)(7장). 이미지를 클릭하면 원본 크기로 열립니다.
 
 #### 1. 검증 샘플 구성 — NSG · Istio · NetworkPolicy
 
@@ -84,7 +74,7 @@ vnet-aksnetval 10.50.0.0/16 (koreacentral, 영역 1·2·3)
 
 ## 테스트 매트릭스와 실측 결과
 
-v4 재검증 [`evidence/10-v4-full-run_20261120-100357.md`](evidence/10-v4-full-run_20261120-100357.md)과 T12c 재실행 [`evidence/11-v4-t12c-rerun_20261120-100846.md`](evidence/11-v4-t12c-rerun_20261120-100846.md) 기준입니다. v3는 [`evidence/09-v3-full-run_20261119-233942.md`](evidence/09-v3-full-run_20261119-233942.md)입니다. v1 최종 실행은 [`evidence/08-final-full-run_20261119-192119.md`](evidence/08-final-full-run_20261119-192119.md)입니다.
+전체 실행 [`evidence/10-v4-full-run_20261120-100357.md`](evidence/10-v4-full-run_20261120-100357.md) 기준입니다. T12c는 전체 실행에서 스크립트 오류로 판정되지 않아, 수정 후 같은 클러스터에서 단독으로 다시 실행한 [`evidence/11-v4-t12c-rerun_20261120-100846.md`](evidence/11-v4-t12c-rerun_20261120-100846.md) 결과입니다.
 
 | ID | 출발 → 대상 | 검증 통제 | 기대 | 실측 | 판정 |
 |---|---|---|---|---|---|
@@ -101,13 +91,15 @@ v4 재검증 [`evidence/10-v4-full-run_20261120-100357.md`](evidence/10-v4-full-
 | T10 | web-a → Blob PE | NetworkPolicy로 Tier 3 차단 | TLS 실패 | 000, DNS=10.50.2.4, rc=28 | PASS |
 | T11 | bff-a → Blob PE | T10 대조군 | TLS 성공 | 400, DNS=10.50.2.4 | PASS |
 | T12 | HPA minReplicas 5 → 2 | scaleDown Pods 1 / 60s | 5→4→3→2, 간격 55초 이상 | 5,4,3,2, 간격 59초·64초 | PASS |
-| T12b | T12 축소 전·후 `hpa-demo` 분포 | 2개로 줄인 뒤 분포 기록 | 기록(판정 없음) | 2/1/2 → 1/0/1 (Pod 2개라 빈 영역 1개는 필연) | INFO |
+| T12b | T12 축소 전·후 `hpa-demo` 분포 | 2개로 줄인 뒤 분포 기록 | 기록(판정 없음) | 2/1/2 → 1/0/1 | INFO |
 | T12c | `hpa-demo` minReplicas 5 → 3, 3회 | 영역 수만큼 남기면 영역마다 1개 이상 | 매회 세 영역 모두 ≥1 | 2/1/2→**1/1/1**, 1/2/2→**1/1/1**, 1/2/2→**1/1/1** | PASS |
 | T13 | `zone-fill` 6개(800m) | CAS 영역 균형 | 영역별 노드 차이 1 이하 | 1/1/1 → 2/2/2, 128초 만에 6개 모두 Running | PASS |
 | T13b | `zone-spread` 6개(800m, DoNotSchedule, minDomains 3) | 강제 분산 + CAS | Pod 2/2/2, Pending 없음 | Pod 2/2/2, 노드 1/1/1 → 2/2/2, 132초 | PASS |
 | T14 | kubelet → web·bff readinessProbe | Istio probe rewrite(STRICT mTLS) | rewrite 후 Ready | Ready 4/4, `15020 /app-health/app/readyz` 4/4 | PASS |
 
-T13의 근거는 TriggeredScaleUp 이벤트 1건입니다. 한 번의 확장에서 `userz1/2/3 1->2`가 함께 일어났습니다(v1에서는 `userz1 1->3`, `userz2 1->2`, `userz3 1->2`). T13b의 이벤트는 v3에는 `userz3 1->2`만, v4에는 세 풀이 모두 남았고 노드는 두 번 모두 세 영역에서 늘었습니다. 이벤트는 Pod별로 중복 제거되어 일부만 보일 수 있으므로 판정은 Pod·노드 수로만 합니다.
+T13의 근거는 TriggeredScaleUp 이벤트 1건입니다. 한 번의 확장에서 `userz1/2/3 1->2`가 함께 일어났습니다. 이벤트는 Pod별로 중복 제거되어 일부만 보일 수 있으므로 T13b는 Pod·노드 수로만 판정합니다.
+
+T12b의 1/0/1은 Pod 2개를 세 영역에 둔 결과라 한 영역이 비는 것이 당연하고, 차이 1은 `maxSkew: 1`도 만족합니다. 그래서 기록만 하고 영역 하한은 T12c로 판정합니다.
 
 ### 판정 원칙
 
@@ -120,22 +112,6 @@ T13의 근거는 TriggeredScaleUp 이벤트 1건입니다. 한 번의 확장에�
 - T13b는 노드 1/1/1에서 시작해 15분 안에 Pending 없이 영역별 Pod 수 차이가 1 이하면 PASS, Pending이 남으면 FAIL입니다.
 - T14는 probe 없음, rewrite 안 됨, Not Ready 중 하나라도 있으면 FAIL입니다.
 
-## 실행 이력과 부정 검증
-
-| 순서 | 결과 파일 | 의미 |
-|---|---|---|
-| 1 | `01-network-baseline` | 네트워크 T1~T11 12건 PASS |
-| 2 | `02-network-netpol-removed` | NetworkPolicy `deny-web-to-data`를 삭제하자 **T10만 FAIL**(400). 이 정책이 실제 차단 요인임을 확인 |
-| 3 | `03-network-netpol-reapplied` | 정책을 다시 적용하자 12건 PASS |
-| 4 | `04-network-rerun` | 네트워크 재실행, 12건 PASS |
-| 5 | `05-hpa-only` | T12 단독 실행, 간격 60.4초·59.7초로 PASS |
-| 6 | `06-zone-1200m-saturated` | `zone-fill` 1200m에서 3/3/3. 모든 풀이 최대치라 균형 근거로 쓸 수 없어 800m로 조정 |
-| 7 | `07-zone-800m` | 800m에서 3/2/2로 PASS |
-| 8 | `08-final-full-run` | v1 최종 전체 T1~T13 14건 PASS |
-| 9 | `09-v3-full-run` | PRD 권장 YAML 반영 후 재검증 T1~T14 16건 PASS + T12b INFO |
-| 10 | `10-v4-full-run` | T12c 추가 재검증. T12c만 스크립트 오류(`"$n회"`를 변수 `$n회`로 해석)로 INCONCLUSIVE, 나머지 PASS |
-| 11 | `11-v4-t12c-rerun` | 오류 수정(`"${n}회"`) 후 같은 클러스터에서 `-Only Floor` 재실행, T12c PASS(1/1/1 ×3) |
-
 ## 확인된 사실과 PRD 시사점
 
 | 통제 | 확인된 사실 | 설계 시사점 |
@@ -143,22 +119,21 @@ T13의 근거는 TriggeredScaleUp 이벤트 1건입니다. 한 번의 확장에�
 | NSG | ILB가 있는 서브넷의 NSG는 효과가 없고, 노드 서브넷 NSG가 차단(T1~T3) | 허용·차단 규칙은 노드 서브넷 NSG에 둠 |
 | AuthorizationPolicy | SA principal 기준으로 교차 호출과 우회 호출이 403(T5·T7·T9) | web↔bff 1:1 정책과 Gateway SA 제한을 그대로 사용 |
 | STRICT mTLS | 사이드카 없는 Pod는 연결이 리셋됨(T8) | 메시 밖 워크로드는 별도 예외 설계 필요 |
-| NetworkPolicy | 사이드카를 거쳐도 PE 대역이 차단되고, 정책 삭제 시 T10만 FAIL | Tier 3 데이터 분리에 NetworkPolicy가 유효 |
+| NetworkPolicy | 사이드카를 거쳐도 PE 대역이 차단되고, 대조군 bff-a는 접근 가능(T10·T11) | Tier 3 데이터 분리에 NetworkPolicy가 유효 |
 | HPA | Pods 1 / 60초 정책으로 약 60초 간격으로 축소(T12) | 축소 속도 제한은 `behavior` 정책으로 구현 |
-| CAS 영역 균형 | 영역 레이블이 다른 풀도 유사 그룹으로 묶여 함께 확장(T13, 두 번 실행 모두 차이 1 이하) | 영역별 풀 + `balance-similar-node-groups` 조합이 유효 |
+| CAS 영역 균형 | 영역 레이블이 다른 풀도 유사 그룹으로 묶여 함께 확장, 1/1/1 → 2/2/2(T13) | 영역별 풀 + `balance-similar-node-groups` 조합이 유효 |
 | 강제 분산 + CAS | `DoNotSchedule`·`minDomains: 3`에서 Pending Pod를 보고 CAS가 세 영역을 확장, Pod 2/2/2(T13b) | PRD 권장 `topologySpreadConstraints`를 그대로 사용 가능 |
-| 축소 뒤 분포 | `minReplicas: 3`으로 5 → 3 축소, 3회 모두 1/1/1(T12c). 5 → 2의 1/0/1(T12b)은 Pod 수상 필연 | `minReplicas` ≥ 영역 수(3) 권장. 장애 뒤 재분산은 Descheduler 검토(PoC 필요) |
+| 축소 뒤 분포 | `minReplicas: 3`으로 5 → 3 축소, 3회 모두 1/1/1(T12c) | `minReplicas` ≥ 영역 수(3) 권장. 장애 뒤 재분산은 Descheduler 검토(PoC 필요) |
 | readinessProbe | STRICT mTLS에서도 `15020 /app-health/...` rewrite로 Ready(T14) | probe를 추가해도 별도 mTLS 예외 불필요 |
 
 ## 한계
 
 - 기능 검증이며 성능 검증은 아닙니다. HTTP 80만 사용했고 TLS 종단은 검증하지 않았습니다.
 - T12는 축소 속도 정책만 검증합니다. 안정화 창(300초)은 검증하지 않습니다.
-- T13은 확장만 판정하고 축소는 관찰만 합니다. 영역별 정확한 노드 수(2/2/2 또는 3/2/2)는 기존 Pod 배치에 따라 달라집니다.
-- v1 최종 리뷰에서 수정한 판정 코드(T3 NSG 실제 조회, T13 판정 순서)는 v3 재검증에서 실측으로 확인했습니다.
+- T13은 확장만 판정하고 축소는 관찰만 합니다. 영역별 정확한 노드 수는 기존 Pod 배치에 따라 달라질 수 있습니다.
 - T14는 rewrite된 probe로 Ready가 되는 것만 확인합니다. 앱이 실패할 때 NotReady로 바뀌는 음성 시나리오는 검증하지 않습니다.
 - T12c의 1/1/1은 3회 관찰이지 보장이 아닙니다. 분산 제약은 축소 때 적용되지 않고, 어느 Pod가 지워지는지는 ReplicaSet 규칙(같은 노드에 몰린 Pod, 최근 생성 Pod 우선 등)에 따릅니다. 확장 때 추가된 Pod부터 지워진 결과로 해석합니다(추정).
-- T12의 패치 후 첫 감소 시간은 실행마다 6~229초로 달랐습니다. 판정 외 값이며 안정화 창 동작의 근거로 쓰지 않습니다.
+- T12의 패치 후 첫 감소 시간(229초)은 판정 외 값이며 안정화 창 동작의 근거로 쓰지 않습니다.
 - 시스템 노드 1대와 Gateway 기본 배치는 검증용 구성입니다. PRD에서는 Gateway 전용 `ingress` 풀을 권장합니다.
 - 로그의 로컬 경로는 `<repo>`로, Storage 계정 이름은 `staksnetval<hash>`로 마스킹했습니다.
 

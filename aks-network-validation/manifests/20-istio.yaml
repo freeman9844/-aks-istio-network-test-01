@@ -1,9 +1,17 @@
-# __GATEWAY_PRINCIPAL__ 은 02-apply.ps1 이 Gateway Pod 의 SA 로 치환한다
-# (cluster.local/ns/aks-istio-ingress/sa/<sa>)
+# Istio 보안·라우팅 정책
+# __GATEWAY_PRINCIPAL__ 은 02-apply.ps1 이 실제 Gateway Pod 의 SA 로 치환한다
+# (형식: cluster.local/ns/aks-istio-ingress/sa/<sa>). SA 이름은 애드온 리비전마다 달라 고정하지 않는다.
+#
+# 요청 흐름: vm-appgw-sim → 내부 Ingress Gateway(ILB 10.50.1.10:80) → web-a/web-b → bff-a/bff-b
+
+# ── mTLS ────────────────────────────────────────────────
+# PeerAuthentication: 네임스페이스 안의 모든 워크로드가 mTLS 연결만 받는다(평문 거부).
+# 사이드카가 없는 Pod(nomesh/probe)의 평문 요청은 연결 단계에서 끊긴다(T8).
+# kubelet probe 는 사이드카가 rewrite 해 주므로 영향을 받지 않는다(T14).
 apiVersion: security.istio.io/v1
 kind: PeerAuthentication
 metadata:
-  name: default
+  name: default                    # 이름이 default 이고 selector 가 없으면 네임스페이스 전체에 적용
   namespace: web
 spec:
   mtls:
@@ -18,6 +26,9 @@ spec:
   mtls:
     mode: STRICT
 ---
+# ── 인입 라우팅 ──────────────────────────────────────────
+# Gateway: AKS Istio 애드온의 "내부" Ingress Gateway(사설 ILB)에 80 포트 리스너를 연다.
+# Host 헤더가 web-a.test / web-b.test 인 요청만 받는다(테스트용 가상 호스트 이름, DNS 등록 없음).
 apiVersion: networking.istio.io/v1
 kind: Gateway
 metadata:
@@ -25,16 +36,17 @@ metadata:
   namespace: web
 spec:
   selector:
-    istio: aks-istio-ingressgateway-internal
+    istio: aks-istio-ingressgateway-internal   # 애드온이 내부 Gateway Pod 에 붙이는 레이블
   servers:
     - port:
         number: 80
         name: http
-        protocol: HTTP
+        protocol: HTTP             # 검증은 HTTP 만. TLS 종단은 범위 밖
       hosts:
         - web-a.test
         - web-b.test
 ---
+# VirtualService: Host 헤더별로 Gateway 에서 받은 요청을 web-a / web-b Service 로 보낸다.
 apiVersion: networking.istio.io/v1
 kind: VirtualService
 metadata:
@@ -44,7 +56,7 @@ spec:
   hosts:
     - web-a.test
   gateways:
-    - web-gateway
+    - web-gateway                  # Gateway 로 들어온 요청에만 적용(메시 내부 호출에는 적용 안 됨)
   http:
     - route:
         - destination:
@@ -69,7 +81,12 @@ spec:
             port:
               number: 8080
 ---
-# web-a·web-b(tier: web)는 Ingress Gateway 에서 온 요청만 허용
+# ── 인가(AuthorizationPolicy) ───────────────────────────
+# 워크로드에 ALLOW 정책이 하나라도 적용되면, 어느 규칙에도 맞지 않는 요청은 403 으로 거부된다.
+# principals 는 mTLS 인증서의 SA ID 로 비교하므로 STRICT mTLS 와 함께 써야 의미가 있다.
+
+# web 계층(tier: web)은 Ingress Gateway 에서 온 요청만 허용한다.
+# 메시 안에서 web-a → web-b 로 Gateway 를 우회해 호출하면 403(T9).
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
@@ -86,6 +103,7 @@ spec:
             principals:
               - __GATEWAY_PRINCIPAL__
 ---
+# bff-a 는 web-a 의 SA 에서 온 요청만 허용(T4 허용, T5 web-a → bff-b 거부와 짝)
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
@@ -102,6 +120,7 @@ spec:
             principals:
               - cluster.local/ns/web/sa/web-a
 ---
+# bff-b 는 web-b 의 SA 에서 온 요청만 허용(T6 허용, T7 web-b → bff-a 거부와 짝)
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:

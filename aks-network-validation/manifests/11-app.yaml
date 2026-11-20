@@ -1,3 +1,10 @@
+# 2계층 BFF 워크로드 bff-a, bff-b
+# - bff-a 는 web-a 의 SA, bff-b 는 web-b 의 SA 에서 온 요청만 허용한다(20-istio.yaml 의 AuthorizationPolicy, T4~T7).
+# - app 네임스페이스에는 NetworkPolicy 가 없어 Private Endpoint(Blob)에 접근할 수 있다. T10 의 대조군(T11)이다.
+# 앱은 netshoot 이미지의 socat 으로 만든 최소 HTTP 서버다. 8080 으로 받은 모든 요청에 200 "ok" 를 돌려준다.
+
+# AuthorizationPolicy 는 이 SA 를 mTLS 인증서의 ID(cluster.local/ns/app/sa/bff-a)로 식별한다.
+# 그래서 Deployment 마다 전용 SA 를 둔다(default SA 를 같이 쓰면 호출자를 구분할 수 없다).
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -10,7 +17,7 @@ metadata:
   name: bff-a
   namespace: app
 spec:
-  replicas: 1
+  replicas: 1                      # 기능 검증용이라 1개. 운영에서는 영역 수 이상 + PDB 권장
   selector:
     matchLabels:
       app: bff-a
@@ -18,9 +25,11 @@ spec:
     metadata:
       labels:
         app: bff-a
-        tier: bff
+        tier: bff                    # AuthorizationPolicy 가 계층 단위로 고를 때 쓰는 레이블
     spec:
       serviceAccountName: bff-a
+      # 영역 분산 "가능하면"(ScheduleAnyway). 자리가 없어도 Pending 으로 두지 않고 배치한다.
+      # replicas 가 1 이라 실제 효과는 없지만 운영 매니페스트와 같은 형태를 유지한다.
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: topology.kubernetes.io/zone
@@ -31,18 +40,22 @@ spec:
       containers:
         - name: app
           image: nicolaka/netshoot:v0.13
+          # socat 이 8080 연결마다 printf 로 HTTP 200 응답을 돌려준다(fork: 동시 연결 허용)
           command: ["socat"]
           args:
             - TCP-LISTEN:8080,fork,reuseaddr
             - 'SYSTEM:"printf ''HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok''"'
           ports:
             - containerPort: 8080
-          # STRICT mTLS 에서도 kubelet 이 확인할 수 있도록 Istio 가 15020 /app-health/ 로 rewrite (T14)
+          # STRICT mTLS 에서는 kubelet 이 평문으로 8080 에 직접 접근할 수 없다.
+          # Istio 사이드카 주입기가 이 probe 를 사이드카 포트 15020 의 /app-health/app/readyz 로 바꿔 쓰고(rewrite),
+          # 사이드카가 앱의 / 를 대신 호출한다. 바뀐 경로와 Ready 상태를 T14 에서 확인한다.
           readinessProbe:
             httpGet:
               path: /
               port: 8080
             periodSeconds: 5
+          # 노드 자원을 거의 쓰지 않도록 최소 요청만 둔다(스케일 검증 Pod 와 경쟁하지 않게)
           resources:
             requests:
               cpu: 10m
@@ -57,10 +70,13 @@ spec:
   selector:
     app: bff-a
   ports:
+    # 포트 이름 접두사 http 로 Istio 가 HTTP 프로토콜로 인식한다. 그래야 L7 정책(403 응답)이 적용된다.
     - name: http
       port: 8080
       targetPort: 8080
 ---
+# AuthorizationPolicy 는 이 SA 를 mTLS 인증서의 ID(cluster.local/ns/app/sa/bff-b)로 식별한다.
+# 그래서 Deployment 마다 전용 SA 를 둔다(default SA 를 같이 쓰면 호출자를 구분할 수 없다).
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -73,7 +89,7 @@ metadata:
   name: bff-b
   namespace: app
 spec:
-  replicas: 1
+  replicas: 1                      # 기능 검증용이라 1개. 운영에서는 영역 수 이상 + PDB 권장
   selector:
     matchLabels:
       app: bff-b
@@ -81,9 +97,11 @@ spec:
     metadata:
       labels:
         app: bff-b
-        tier: bff
+        tier: bff                    # AuthorizationPolicy 가 계층 단위로 고를 때 쓰는 레이블
     spec:
       serviceAccountName: bff-b
+      # 영역 분산 "가능하면"(ScheduleAnyway). 자리가 없어도 Pending 으로 두지 않고 배치한다.
+      # replicas 가 1 이라 실제 효과는 없지만 운영 매니페스트와 같은 형태를 유지한다.
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: topology.kubernetes.io/zone
@@ -94,18 +112,22 @@ spec:
       containers:
         - name: app
           image: nicolaka/netshoot:v0.13
+          # socat 이 8080 연결마다 printf 로 HTTP 200 응답을 돌려준다(fork: 동시 연결 허용)
           command: ["socat"]
           args:
             - TCP-LISTEN:8080,fork,reuseaddr
             - 'SYSTEM:"printf ''HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok''"'
           ports:
             - containerPort: 8080
-          # STRICT mTLS 에서도 kubelet 이 확인할 수 있도록 Istio 가 15020 /app-health/ 로 rewrite (T14)
+          # STRICT mTLS 에서는 kubelet 이 평문으로 8080 에 직접 접근할 수 없다.
+          # Istio 사이드카 주입기가 이 probe 를 사이드카 포트 15020 의 /app-health/app/readyz 로 바꿔 쓰고(rewrite),
+          # 사이드카가 앱의 / 를 대신 호출한다. 바뀐 경로와 Ready 상태를 T14 에서 확인한다.
           readinessProbe:
             httpGet:
               path: /
               port: 8080
             periodSeconds: 5
+          # 노드 자원을 거의 쓰지 않도록 최소 요청만 둔다(스케일 검증 Pod 와 경쟁하지 않게)
           resources:
             requests:
               cpu: 10m
@@ -120,6 +142,7 @@ spec:
   selector:
     app: bff-b
   ports:
+    # 포트 이름 접두사 http 로 Istio 가 HTTP 프로토콜로 인식한다. 그래야 L7 정책(403 응답)이 적용된다.
     - name: http
       port: 8080
       targetPort: 8080

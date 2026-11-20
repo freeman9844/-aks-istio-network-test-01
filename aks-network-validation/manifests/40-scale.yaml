@@ -1,3 +1,8 @@
+# 스케일링 검증용 워크로드(scale 네임스페이스, 사용자 풀 userz1/2/3 에만 배치)
+#   hpa-demo    : HPA 축소 속도(T12), 축소 뒤 영역 분포(T12b 기록, T12c 판정)
+#   zone-fill   : Cluster Autoscaler 영역 균형(T13). 분산 제약 없음
+#   zone-spread : 영역 강제 분산 + Cluster Autoscaler(T13b)
+# 세 워크로드 모두 pause 이미지라 CPU 를 실제로 쓰지 않는다. CPU 요청(requests)만으로 노드 자리를 차지한다.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -10,7 +15,8 @@ metadata:
   name: hpa-demo
   namespace: scale
 spec:
-  # replicas 생략: HPA(minReplicas 5)가 관리. 02-apply 재실행 시 개수가 초기화되지 않게 함
+  # replicas 를 두지 않는다. Pod 수는 HPA 가 관리한다.
+  # 여기에 값을 두면 02-apply.ps1 을 다시 실행할 때마다 Pod 수가 그 값으로 되돌아가 HPA 와 충돌한다.
   selector:
     matchLabels:
       app: hpa-demo
@@ -21,27 +27,38 @@ spec:
     spec:
       serviceAccountName: hpa-demo
       nodeSelector:
-        kubernetes.azure.com/mode: user
-      # PRD 제안 YAML 과 같은 영역 강제 분산. 축소 전후 영역 분포는 T12b 에서 기록(판정 없음)
+        kubernetes.azure.com/mode: user   # 시스템 풀을 피하고 사용자 풀에만 배치
+      # PRD 권장 YAML 과 같은 영역 강제 분산
       topologySpreadConstraints:
-        - maxSkew: 1
+        - maxSkew: 1                       # 영역 간 Pod 수 차이를 1 이하로
           topologyKey: topology.kubernetes.io/zone
+          # 차이가 1을 넘게 되면 배치하지 않고 Pending 으로 둔다(강제)
           whenUnsatisfiable: DoNotSchedule
+          # 배치 가능한 노드가 있는 영역이 3개보다 적으면 최소 영역의 Pod 수를 0으로 보고 계산한다.
+          # 그래서 한 영역에 노드가 없으면 나머지 영역에 몰리지 않고 Pending 이 되어 CAS 확장을 유도한다.
           minDomains: 3
+          # taint 를 견디지 못하는 노드(CriticalAddonsOnly 가 걸린 시스템 노드)는 영역 계산에서 뺀다
           nodeTaintsPolicy: Honor
           labelSelector:
             matchLabels:
               app: hpa-demo
+          # 롤링 업데이트 때 이전 ReplicaSet 의 Pod 를 빼고 같은 버전끼리만 분산을 계산한다
           matchLabelKeys:
             - pod-template-hash
+      # 주의: 분산 제약은 Pod 를 배치할 때만 적용된다. 축소할 때 어느 Pod 를 지울지는 ReplicaSet 규칙이 정한다.
+      # 그래서 축소 뒤 영역 분포는 T12c 에서 실제로 확인한다.
       containers:
         - name: app
           image: registry.k8s.io/pause:3.9
           resources:
             requests:
-              cpu: 100m
+              cpu: 100m                    # HPA 사용률 계산의 기준값. 요청이 없으면 HPA 가 계산하지 못한다
 ---
-# 축소 속도만 검증: 60초에 1개. 안정화 시간은 기본값(300초)
+# HPA: 평소에는 최소 = 최대 = 5 로 Pod 5개를 고정한다.
+# 검증 스크립트가 minReplicas 를 낮춰 축소를 일으킨다.
+#   T12  : 5 → 2. 1분에 1개씩 줄어드는지 확인(5,4,3,2, 간격 55초 이상이면 PASS)
+#   T12c : 5 → 3(영역 수)을 3회 반복. 매회 세 영역에 1개 이상 남으면 PASS
+# pause 컨테이너는 CPU 를 쓰지 않아 사용률이 늘 목표(70%)보다 낮으므로, HPA 는 항상 최소값까지 줄이려 한다.
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -63,10 +80,11 @@ spec:
           averageUtilization: 70
   behavior:
     scaleDown:
+      # stabilizationWindowSeconds 를 생략해 기본값 300초를 쓴다(이 검증의 판정 대상 아님)
       policies:
-        - type: Pods
-          value: 1
-          periodSeconds: 60
+        - type: Pods               # Pod 개수 기준으로
+          value: 1                 # 한 번에 최대 1개씩
+          periodSeconds: 60        # 60초 동안
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -74,10 +92,13 @@ metadata:
   name: zone-fill
   namespace: scale
 ---
-# 영역 균형 검증용. 평소 0개, 분산 제약 없음
-# cpu 800m: 새 D2s_v5 노드(할당 가능 1900m, DaemonSet 약 410m)에는 1개만 들어가고(2×800 > 1490),
-# 업무 Pod가 있는 기존 노드(사용 약 800~930m)에도 1개 들어가도록 잡았다. 1200m이면 기존 노드에 못 들어가
-# 6개가 모두 새 노드를 요구해 풀마다 최대(3대)에 도달하므로 균형 여부를 가릴 수 없다(실측 3/3/3).
+# T13: Cluster Autoscaler 의 영역 균형(balance-similar-node-groups=true) 검증용. 평소 0개, 분산 제약 없음.
+# 검증 때 6개로 늘리면 들어갈 자리가 없는 Pod 가 Pending 이 되고, CAS 가 영역별 풀(userz1/2/3)을 함께 늘리는지 본다.
+# CPU 800m 로 잡은 이유:
+#   - 새 D2s_v5 노드(할당 가능 1900m, DaemonSet 약 410m)에는 1개만 들어간다(800 × 2 > 1490).
+#   - 업무 Pod 가 있는 기존 노드(사용 약 800~930m)에도 1개 들어간다.
+#   - 1200m 이면 기존 노드에 하나도 못 들어가 6개 모두 새 노드를 요구하고, 풀마다 최대(3대)에 닿아
+#     균형 여부를 가릴 수 없다(3/3/3 으로 포화).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -109,8 +130,9 @@ metadata:
   name: zone-spread
   namespace: scale
 ---
-# T13b: PRD 제안 YAML 의 영역 강제 분산(DoNotSchedule + minDomains 3)과 CAS 를 함께 검증. 평소 0개
-# 6개는 영역마다 정확히 2개여야 하고, 기존 노드(풀당 1대)에는 800m 가 1개씩만 들어가므로 영역마다 노드 1대 확장을 기대
+# T13b: PRD 권장 YAML 의 영역 강제 분산(hpa-demo 와 같은 제약)과 Cluster Autoscaler 를 함께 검증. 평소 0개.
+# 6개로 늘리면 영역마다 정확히 2개씩 있어야 한다. 기존 노드(풀당 1대)에는 800m 가 1개씩만 들어가므로
+# 남은 Pod 는 Pending 이 되고, CAS 가 Pod 가 들어갈 영역의 풀을 1대씩 늘려 노드 2/2/2, Pod 2/2/2 가 되기를 기대한다.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
