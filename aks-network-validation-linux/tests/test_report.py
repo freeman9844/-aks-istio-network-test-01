@@ -39,9 +39,9 @@ def test_save_default_stamp_format(tmp_path):
 
 
 def test_order_places_app_pe_tests_after_t11():
-    rows = [report.row(i, "", "", "", "", "PASS") for i in ("T12", "T21", "T16", "T11", "T19")]
+    rows = [report.row(i, "", "", "", "", "PASS") for i in ("T12", "T23", "T21", "T16", "T22", "T11", "T19")]
     data = json.loads(Path(report.save(rows, "/tmp/aksnetval-order", stamp="o")["json"]).read_text(encoding="utf-8"))
-    assert [r["Id"] for r in data] == ["T11", "T16", "T19", "T21", "T12"]
+    assert [r["Id"] for r in data] == ["T11", "T16", "T19", "T21", "T22", "T23", "T12"]
 
 
 def test_merge_t15_replaces_existing_row(tmp_path):

@@ -1,11 +1,14 @@
 """kubectl·az JSON 집계 함수(03-verify 보조). 원본 03-verify.ps1 의 Get-PodZoneCounts 등 대응."""
 import json
 
+import pytest
+
 from aksnetval import _cli
 from aksnetval.kube import (
     aks_zone_setting,
     fmt_counts,
     fmt_short,
+    node_targets,
     node_zone_counts,
     nodes_at_min,
     pod_zone_counts,
@@ -38,6 +41,21 @@ def _pod(name, node=None, phase="Running", deleting=False, ready=True, probe=("1
 
 def test_node_zone_counts():
     assert node_zone_counts(NODES) == {"1": 2, "2": 1, "3": 1}
+
+
+def _ipnode(name, ip):
+    return {"metadata": {"name": name}, "status": {"addresses": [{"type": "Hostname", "address": name}, {"type": "InternalIP", "address": ip}]}}
+
+
+def test_node_targets_own_and_other_node():
+    nodes = {"items": [_ipnode("sys", "10.50.4.4"), _ipnode("u1", "10.50.4.5"), _ipnode("u2", "10.50.4.6")]}
+    pods = {"items": [_pod("old", "sys", deleting=True), _pod("bff-b-0", "u2")]}
+    assert node_targets(nodes, pods) == {"own_node": "u2", "own_ip": "10.50.4.6", "other_node": "sys", "other_ip": "10.50.4.4"}
+
+
+def test_node_targets_needs_two_nodes():
+    with pytest.raises(ValueError):
+        node_targets({"items": [_ipnode("u1", "10.50.4.5")]}, {"items": [_pod("bff-b-0", "u1")]})
 
 
 def test_pod_zone_counts_excludes_deleting_and_counts_pending():

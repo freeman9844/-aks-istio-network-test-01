@@ -1,0 +1,64 @@
+코드 번들 업로드: 36K
+02-apply 시작(vm-mgmt, systemd 유닛 aksnetval-02-apply)
+[08:14:41] 이미 있음: 내부 Ingress Gateway
+[08:14:41] 어노테이션 적용: subnet=snet-ingress, ipv4=10.50.1.10
+[08:14:43] Istio 리비전: asm-1-30
+[08:14:43] 적용: 00-namespaces.yaml
+namespace/web unchanged
+namespace/app unchanged
+namespace/nomesh unchanged
+namespace/scale unchanged
+[08:14:44] Gateway principal: cluster.local/ns/aks-istio-ingress/sa/aks-istio-ingressgateway-internal
+[08:14:44] 적용: 10-web.yaml
+serviceaccount/web-a unchanged
+deployment.apps/web-a unchanged
+service/web-a unchanged
+serviceaccount/web-b unchanged
+deployment.apps/web-b unchanged
+service/web-b unchanged
+[08:14:45] 적용: 11-app.yaml
+serviceaccount/bff-a unchanged
+deployment.apps/bff-a unchanged
+service/bff-a unchanged
+serviceaccount/bff-b unchanged
+deployment.apps/bff-b unchanged
+service/bff-b unchanged
+[08:14:45] 적용: 12-nomesh.yaml
+serviceaccount/probe unchanged
+deployment.apps/probe unchanged
+[08:14:45] 적용: 20-istio.yaml (principal 치환)
+peerauthentication.security.istio.io/default unchanged
+peerauthentication.security.istio.io/default unchanged
+gateway.networking.istio.io/web-gateway unchanged
+virtualservice.networking.istio.io/web-a unchanged
+virtualservice.networking.istio.io/web-b unchanged
+authorizationpolicy.security.istio.io/web-allow-ingress unchanged
+authorizationpolicy.security.istio.io/bff-a-allow unchanged
+authorizationpolicy.security.istio.io/bff-b-allow unchanged
+[08:14:49] 적용: 30-netpol.yaml
+networkpolicy.networking.k8s.io/deny-web-to-data unchanged
+[08:14:49] 적용: 31-app-pe-egress.yaml
+networkpolicy.networking.k8s.io/app-egress-default unchanged
+networkpolicy.networking.k8s.io/allow-bff-b-to-blob unchanged
+networkpolicy.networking.k8s.io/allow-bff-a-to-blob2 unchanged
+ciliumnetworkpolicy.cilium.io/app-egress-nodes created
+[08:14:51] 적용: 40-scale.yaml
+serviceaccount/hpa-demo unchanged
+deployment.apps/hpa-demo unchanged
+horizontalpodautoscaler.autoscaling/hpa-demo unchanged
+serviceaccount/zone-fill unchanged
+deployment.apps/zone-fill unchanged
+serviceaccount/zone-spread unchanged
+deployment.apps/zone-spread unchanged
+[08:14:52] 롤아웃 확인: aks-istio-ingress/deployment.apps/aks-istio-ingressgateway-internal-asm-1-30
+[08:14:52] 롤아웃 확인: web/deployment.apps/web-a
+[08:14:52] 롤아웃 확인: web/deployment.apps/web-b
+[08:14:52] 롤아웃 확인: app/deployment.apps/bff-a
+[08:14:54] 롤아웃 확인: app/deployment.apps/bff-b
+[08:14:55] 롤아웃 확인: nomesh/deployment.apps/probe
+[08:14:55] 롤아웃 확인: scale/deployment.apps/hpa-demo
+[08:14:55] 롤아웃 확인: scale/deployment.apps/zone-fill
+[08:14:55] 롤아웃 확인: scale/deployment.apps/zone-spread
+[08:14:55] Gateway ILB IP: 10.50.1.10
+[08:14:55] 적용 완료
+02-apply 완료

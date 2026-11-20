@@ -212,4 +212,5 @@ T1~T14 는 기존 설계의 출발지·대상·기대값·판정 규칙을 그�
 
 - `snet-mgmt` 를 NAT Gateway 에 연결해도, 기본 아웃바운드가 없는 VNet 이면 **기존 테스트 VM 의 run-command 결과 반환이 실패**할 수 있다(이번 PowerShell 실행에서는 동작함). 실패하면 테스트 VM 서브넷에도 같은 NAT Gateway 를 연결한다. 이 경우 NSG 경로는 바뀌지 않는다(PoC 필요).
 - Istio 서비스 메시 애드온과 Private Cluster 조합은 문서상 제한을 찾지 못했지만 실측으로 확인한다(PoC 필요).
+- (실측 확인) AKS Cilium 기본 설정에서 표준 NetworkPolicy 의 ipBlock 은 노드 IP 에 매칭되지 않아 `0.0.0.0/0` 으로도 노드(kubelet 등) egress 가 막힌다(T22·T23 FAIL). CiliumNetworkPolicy `toEntities: [host, remote-node]` 로 보완해 PASS 를 확인했다. 노드 쪽 포트 제한(`toPorts`)은 PoC 필요.
 - run-command 스크립트 인자 크기 한도는 문서에서 확인하지 못했다. 업로드 청크 크기는 구현 중 실측으로 정한다.

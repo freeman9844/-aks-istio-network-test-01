@@ -51,6 +51,13 @@ def tls_verdict(resolved_ip: str, code: str, expect: str, control_passed: bool =
     return "PASS" if ok else "FAIL"
 
 
+def node_reach_verdict(code: str, ran: bool, control_code: str, control_ran: bool) -> str:
+    # 대조군(정책 없는 Pod)이 노드에 닿아야 비교 대상 Pod 의 000 을 정책 차단으로 볼 수 있다
+    if not (control_ran and control_code != "000") or not ran:
+        return "INCONCLUSIVE"
+    return "PASS" if code != "000" else "FAIL"
+
+
 def started_after(pod_start: str, policy_created: str) -> bool:
     # Python 3.10(Ubuntu 22.04)의 fromisoformat 은 'Z' 를 받지 않는다
     def parse(s: str) -> datetime:

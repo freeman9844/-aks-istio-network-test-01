@@ -57,11 +57,16 @@ CODES = {
     ("app", "bff-b", "blob"): "400", ("app", "bff-a", "blob"): os.environ.get("FAKE_BFFA_BLOB", "000"),
     ("app", "bff-a", "blob2"): "400", ("app", "bff-b", "blob2"): "000",
     ("app", "bff-b", "localhost"): "200", ("app", "bff-b", "mcr"): "401",
+    ("app", "bff-b", "node"): os.environ.get("FAKE_BFFB_NODE", "401"),
+    ("nomesh", "probe", "node"): os.environ.get("FAKE_PROBE_NODE", "401"),
 }
 DNS = {"blob2": "10.50.2.5", "blob": "10.50.2.4", "kubernetes": "10.0.0.1"}
 
 
 def target(cmd):
+    m = re.search(r"https://(\d+\.\d+\.\d+\.\d+):10250", cmd)
+    if m:
+        return "node"
     m = re.search(r"(staksnetval\w+)\.blob", cmd)
     if m:
         # STORAGE 는 staksnetval+6자, STORAGE2 는 staksnetvalb+6자(해시가 b 로 시작할 수 있어 길이로 구분)
@@ -95,9 +100,13 @@ elif a[:2] == ["get", "pods"]:
     app = a[a.index("-l") + 1].split("=")[1]
     start = "2025-12-31T23:00:00Z" if os.environ.get("FAKE_OLD_POD") else "2026-01-01T00:10:00Z"
     pod = {"metadata": {"name": app + "-0"},
-           "spec": {"containers": [{"name": "app", "readinessProbe": {"httpGet": {"port": 15020, "path": "/app-health/app/readyz"}}}]},
+           "spec": {"nodeName": "aks-user-1", "containers": [{"name": "app", "readinessProbe": {"httpGet": {"port": 15020, "path": "/app-health/app/readyz"}}}]},
            "status": {"phase": "Running", "startTime": start, "conditions": [{"type": "Ready", "status": "True"}]}}
     print(json.dumps({"items": [pod]}))
+elif a[:2] == ["get", "nodes"]:
+    def node(n, ip):
+        return {"metadata": {"name": n}, "status": {"addresses": [{"type": "InternalIP", "address": ip}]}}
+    print(json.dumps({"items": [node("aks-system-0", "10.50.4.4"), node("aks-user-1", "10.50.4.6")]}))
 elif a[:2] == ["get", "--raw"]:
     print("ok")
 else:
@@ -134,8 +143,10 @@ def test_network_all_pass_with_expected_codes(tmp_path):
     r, vm_root, rows = _run(tmp_path)
     assert r.returncode == 0, r.stderr + r.stdout
     assert list(rows) == ["T1", "T2", "T2c", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "T11",
-                          "T16", "T17", "T18", "T19", "T20", "T21", "T14"]
+                          "T16", "T17", "T18", "T19", "T20", "T21", "T22", "T23", "T14"]
     assert {k: v["Verdict"] for k, v in rows.items() if v["Verdict"] != "PASS"} == {}
+    assert rows["T22"]["From"] == "app/bff-b" and "10.50.4.6:10250" in rows["T22"]["To"]
+    assert "10.50.4.4:10250" in rows["T23"]["To"] and rows["T23"]["Observed"] == "401"
     assert rows["T3"]["Observed"] == "200"
     assert rows["T11"]["From"] == "app/bff-b" and rows["T11"]["To"].endswith("(10.50.2.4)")
     assert rows["T17"]["From"] == "app/bff-a" and rows["T17"]["To"].endswith("(10.50.2.5)")
@@ -179,3 +190,17 @@ def test_mid_function_abort_leaves_rows_for_remaining_ids(tmp_path):
         assert rows[i]["Verdict"] == "INCONCLUSIVE"
         assert rows[i]["Note"].startswith("실행 오류")
     assert list(rows)[-1] == "T14"
+
+
+def test_node_egress_blocked_fails_t22_t23(tmp_path):
+    # 기본 egress 정책이 노드(host/remote-node)를 막으면 FAIL 로 드러나야 한다
+    r, _, rows = _run(tmp_path, {"FAKE_BFFB_NODE": "000"})
+    assert r.returncode == 0, r.stderr + r.stdout
+    assert rows["T22"]["Verdict"] == "FAIL" and rows["T23"]["Verdict"] == "FAIL"
+
+
+def test_node_control_unreachable_makes_t22_t23_inconclusive(tmp_path):
+    r, _, rows = _run(tmp_path, {"FAKE_BFFB_NODE": "000", "FAKE_PROBE_NODE": "000"})
+    assert r.returncode == 0, r.stderr + r.stdout
+    assert rows["T22"]["Verdict"] == "INCONCLUSIVE" and rows["T23"]["Verdict"] == "INCONCLUSIVE"
+    assert "대조군" in rows["T22"]["Note"]

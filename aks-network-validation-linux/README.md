@@ -28,7 +28,7 @@ vnet-aksnetval 10.50.0.0/16 (koreacentral)
 run.sh <단계>   ─ 코드 번들 업로드(sha256 확인) → systemd-run 으로 시작 → 로그 폴링 → 결과 회수
                                                01-infra.sh   NSG·Storage 2·PE 2(고정 IP)·VM 2·Private AKS·풀
                                                02-apply.sh   Istio 내부 Gateway, 매니페스트, NetworkPolicy
-                                               03-verify.sh  T1~T21 → results/<시각>.json·.md
+                                               03-verify.sh  T1~T23 → results/<시각>.json·.md
 99-cleanup.sh    로컬에서 RG 삭제
 ```
 
@@ -54,7 +54,7 @@ local/run.sh verify                # 약 40분(T13b 의 CAS 축소 대기 포함
 
 - 모든 단계는 멱등입니다. 실패하면 원인을 고친 뒤 **그 단계만** 다시 실행합니다.
 - 같은 단계가 이미 VM 에서 실행 중이면 새로 시작하지 않고 기존 실행의 진행만 따라갑니다.
-- `--only all|network|hpa|floor|zone|spread`: 검증 일부만 실행합니다(`network` 는 T1~T11, T14~T21, 약 6분).
+- `--only all|network|hpa|floor|zone|spread`: 검증 일부만 실행합니다(`network` 는 T1~T11, T14~T23, 약 6분).
 - `--poll <초>`: 진행 로그 조회 간격(기본 30초).
 
 ## 테스트 목록
@@ -77,6 +77,8 @@ local/run.sh verify                # 약 40분(T13b 의 CAS 축소 대기 포함
 | T19 | bff-b → CoreDNS | 해석 성공 | 기본 egress 유지(DNS) |
 | T20 | bff-b → 15021 ready | 200 | 기본 egress 유지(istiod xDS). Pod 가 정책 생성 이후 기동했을 때만 근거로 인정 |
 | T21 | bff-b → mcr.microsoft.com | ≠000 | 기본 egress 유지(인터넷) |
+| T22 | bff-b → 자기 노드 kubelet(:10250) | ≠000 | 기본 egress 유지(노드, Cilium host 엔터티). 대조군 nomesh/probe |
+| T23 | bff-b → 다른 노드 kubelet(:10250) | ≠000 | 기본 egress 유지(노드, Cilium remote-node 엔터티). 대조군 nomesh/probe |
 | T12 | hpa-demo minReplicas 5→2 | 1분에 1개씩 축소 | HPA scaleDown 정책 |
 | T12b | hpa-demo 축소 후 영역 분포 | 기록 | (판정 없음) Pod 2개라 빈 영역 1개는 필연 |
 | T12c | hpa-demo minReplicas 5→3, 3회 | 매회 세 영역 ≥1 | 축소 뒤 영역 하한 |
@@ -85,9 +87,9 @@ local/run.sh verify                # 약 40분(T13b 의 CAS 축소 대기 포함
 | T14 | kubelet readinessProbe | Ready + 15020 rewrite | Istio probe rewrite |
 | T15 | vm-mgmt + 로컬 → API 서버 | 사설 IP·로컬 접근 불가 | Private Cluster |
 
-### app 네임스페이스 PE egress 분리(T16~T21)
+### app 네임스페이스 PE egress 분리(T16~T23)
 
-`manifests-linux/31-app-pe-egress.yaml` 의 NetworkPolicy 3개로 구성합니다. 표준 NetworkPolicy 는 허용 규칙의 **합집합**이므로,
+`manifests-linux/31-app-pe-egress.yaml` 의 NetworkPolicy 3개와 CiliumNetworkPolicy 1개로 구성합니다. 표준 NetworkPolicy 는 허용 규칙의 **합집합**이므로,
 공통 정책에서 PE 서브넷만 빼고 Pod 별로 필요한 PE IP 만 다시 허용합니다.
 
 | 정책 | 대상 Pod | egress 허용 |
@@ -95,6 +97,18 @@ local/run.sh verify                # 약 40분(T13b 의 CAS 축소 대기 포함
 | `app-egress-default` | app 네임스페이스 전체 | 클러스터 내부(`namespaceSelector: {}`) + `0.0.0.0/0` except `10.50.2.0/24` |
 | `allow-bff-b-to-blob` | `app=bff-b` | `10.50.2.4/32` TCP 443 |
 | `allow-bff-a-to-blob2` | `app=bff-a` | `10.50.2.5/32` TCP 443 |
+| `app-egress-nodes`(CiliumNetworkPolicy) | app 네임스페이스 전체 | `toEntities: [host, remote-node]` (노드 IP) |
+
+**노드 egress(T22·T23)**: AKS Azure CNI powered by Cilium 은 기본 설정(`policy-cidr-match-mode` 미설정)에서 표준 NetworkPolicy 의 ipBlock 을 Pod·노드 IP 에 매칭하지 않습니다([Cilium 문서](https://docs.cilium.io/en/stable/network/kubernetes/policy/)).
+그래서 `0.0.0.0/0` 을 허용해도 노드 IP(kubelet, hostNetwork Pod, NodePort 등)로 가는 연결은 막힙니다. 실측 결과는 다음과 같습니다.
+
+| 조건 | bff-b → 노드 :10250 | 대조군 nomesh/probe |
+|---|---|---|
+| NetworkPolicy 3개만 | 000(차단) | 401 |
+| + NetworkPolicy ipBlock `10.50.4.0/24` | 000(차단) | 401 |
+| + CiliumNetworkPolicy `toEntities: [host, remote-node]` | 401(연결) | 401 |
+
+노드 쪽 포트를 좁히려면 `app-egress-nodes` 에 `toPorts` 를 더합니다(PoC 필요).
 
 - PE 는 고정 IP(`--ip-config … private-ip-address`)로 만들고, 생성 후 NIC 의 실제 IP 가 기대값과 다르면 중단합니다.
 - T10·T11·T16~T18 은 DNS 가 기대 PE IP 로 해석될 때만 판정합니다(다르면 INCONCLUSIVE).
@@ -108,8 +122,8 @@ local/run.sh verify                # 약 40분(T13b 의 CAS 축소 대기 포함
 
 ## 최신 결과(2026-11-20, koreacentral)
 
-**24 PASS + T12b INFO.** 전체 실행(`20261120-050457`)에서 T20 이 INCONCLUSIVE 였고(위 재시작 타이밍 문제), 수정 후
-`--only network`(`20261120-052231`)로 다시 실행해 PASS 를 확인했습니다. 아래 표는 네트워크 항목은 재실행 결과, 스케일 항목은 전체 실행 결과입니다.
+**26 PASS + T12b INFO.** 네트워크 항목(T1~T11, T14~T23)은 `app-egress-nodes` 를 추가한 뒤 새 클러스터에서 `--only network`(`20261120-082121`)로 실행한 결과이고,
+스케일 항목(T12·T13)은 이전 전체 실행(`20261120-050457`) 결과입니다. 이번 변경은 app 네임스페이스 egress 정책만 다루므로 스케일 항목은 다시 실행하지 않았습니다.
 
 | Id | From | To | Observed | Verdict | Note |
 |---|---|---|---|---|---|
@@ -131,6 +145,8 @@ local/run.sh verify                # 약 40분(T13b 의 CAS 축소 대기 포함
 | T19 | app/bff-b | CoreDNS | 10.0.0.1 | PASS |  |
 | T20 | app/bff-b | istiod(:15021 ready) | 200 | PASS | 정책 생성 이후 기동한 Pod |
 | T21 | app/bff-b | mcr.microsoft.com:443 | 200 | PASS |  |
+| T22 | app/bff-b | 자기 노드 :10250 (kubelet) | 401 | PASS | 대조군 nomesh/probe=401 |
+| T23 | app/bff-b | 다른 노드 :10250 (kubelet) | 401 | PASS | 대조군 nomesh/probe=401 |
 | T12 | — | hpa-demo minReplicas 5→2 | 5,4,3,2 (61·62초 간격) | PASS |  |
 | T12b | — | hpa-demo 영역 분포 | 1/2/2 → 0/1/1 | INFO | Pod 2개·영역 3개 |
 | T12c | — | hpa-demo minReplicas 5→3, 3회 | 매회 1/2/2 → 1/1/1 | PASS |  |
@@ -144,6 +160,8 @@ local/run.sh verify                # 약 40분(T13b 의 CAS 축소 대기 포함
 | 증상 | 원인·조치 |
 |---|---|
 | WSL 에서 `login.microsoftonline.com` 이 `Network is unreachable`/000 | Global Secure Access 등 사내 클라이언트가 합성 IP(예: 6.6.0.2)를 돌려주는데 WSL 트래픽은 그 터널을 타지 않습니다. 네트워크 관리자와 협의해 WSL 경로를 열거나, 승인된 범위에서 WSL `/etc/hosts` 를 임시 조정하고 작업 후 원복합니다. |
+| WSL 재시작 후 `/etc/hosts` 조정이 사라짐 | WSL 이 hosts 를 다시 생성합니다. `/etc/wsl.conf` 에 `[network]` `generateHosts=false` 를 넣으면 유지됩니다. |
+| T22·T23 FAIL(대조군은 401) | 노드 IP 로 가는 egress 가 막힌 상태입니다. `app-egress-nodes`(CiliumNetworkPolicy)가 적용됐는지 확인합니다(`kubectl get cnp -n app`). |
 | `AADSTS50173` | WSL 의 az 토큰 만료. `az login --use-device-code` 로 다시 로그인합니다. |
 | 비대화형 실행에서 부트스트랩이 멈춤 | 구독 확인 프롬프트(`read -p`) 때문입니다. `--force` 를 붙입니다. |
 | T20 INCONCLUSIVE "Pod 가 정책 적용 전에 기동" | `local/run.sh apply` 를 다시 실행해 app Pod 를 정책 이후에 재기동합니다. |

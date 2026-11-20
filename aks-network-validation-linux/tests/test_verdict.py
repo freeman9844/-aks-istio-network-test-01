@@ -15,9 +15,22 @@ from aksnetval.verdict import (
     require,
     started_after,
     tls_verdict,
+    node_reach_verdict,
     zone_balance_verdict,
     zone_floor_verdict,
 )
+
+
+# T22·T23: app Pod → 노드(kubelet) egress. 대조군은 정책 없는 nomesh/probe
+@pytest.mark.parametrize("code,ran,ccode,cran,want", [
+    ("401", True, "401", True, "PASS"),
+    ("000", True, "401", True, "FAIL"),
+    ("000", False, "401", True, "INCONCLUSIVE"),  # curl 미실행이면 000 은 차단 증거가 아님
+    ("000", True, "000", True, "INCONCLUSIVE"),  # 대조군도 못 닿으면 정책 탓인지 알 수 없음
+    ("401", True, "401", False, "INCONCLUSIVE"),
+])
+def test_node_reach_verdict(code, ran, ccode, cran, want):
+    assert node_reach_verdict(code, ran, ccode, cran) == want
 
 
 # T1~T11 HTTP

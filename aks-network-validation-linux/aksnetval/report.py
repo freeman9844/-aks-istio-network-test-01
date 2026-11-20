@@ -8,7 +8,7 @@ from aksnetval import localprobe
 from aksnetval.verdict import api_private_verdict
 
 COLUMNS = ("Id", "From", "To", "Expect", "Observed", "Verdict", "Note")
-ORDER = ["T1", "T2", "T2c", "T3", *[f"T{i}" for i in range(4, 12)], *[f"T{i}" for i in range(16, 22)],
+ORDER = ["T1", "T2", "T2c", "T3", *[f"T{i}" for i in range(4, 12)], *[f"T{i}" for i in range(16, 24)],
          "T12", "T12b", "T12c", "T13", "T13b", "T14", "T15"]
 
 

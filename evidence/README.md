@@ -2,7 +2,7 @@
 
 이 폴더에는 두 실행판의 원본 결과가 있습니다. 메인은 **Linux 관리 VM판**이고, PowerShell판은 이전 판으로 보존합니다.
 
-- [`linux/`](linux/): Linux 관리 VM판(Private Cluster, bash + az CLI), T1~T21. **24건 PASS + T12b INFO**
+- [`linux/`](linux/): Linux 관리 VM판(Private Cluster, bash + az CLI), T1~T23. **26건 PASS + T12b INFO**
 - 이 폴더의 `01`~`11`, `logs/`: PowerShell판(공개 API 서버, `03-verify.ps1`), T1~T14. 17건 PASS + T12b INFO
 
 ## Linux 관리 VM판 (`linux/`)
@@ -13,8 +13,10 @@
 |---|---|---|---|
 | 01 | `01-full-run_20261120-050457` | T1~T21 전체 | 23건 PASS + T12b INFO, **T20만 INCONCLUSIVE**. 정책 생성과 app Pod 재시작이 같은 초(초 단위 타임스탬프)라 "정책 이후 기동" 근거가 성립하지 않음 |
 | 02 | `02-network-rerun_20261120-052231` | `--only network`(T1~T11, T14~T21) | `02-apply.sh`가 `sleep 2` 후 재시작하도록 고치고 apply를 다시 실행한 뒤 **20건 PASS**(T20 포함) |
+| 03 | `03-node-egress-fail_20261120-075659` | `--only network`(T1~T11, T14~T23), 새 클러스터 | 20건 PASS, **T22·T23 FAIL**(bff-b → 노드 :10250이 000, 대조군 probe 401). Cilium 기본값에서 NetworkPolicy `ipBlock`이 노드 IP에 매칭되지 않음 |
+| 04 | `04-node-egress-fix_20261120-082121` | `--only network`(T1~T11, T14~T23) | CiliumNetworkPolicy `app-egress-nodes`(`toEntities: [host, remote-node]`) 추가 후 **22건 PASS**(T22·T23 401) |
 
-종합 **24건 PASS + T12b INFO**는 네트워크 항목은 02, 스케일 항목(T12·T12b·T12c·T13·T13b)은 01의 결과입니다.
+종합 **26건 PASS + T12b INFO**는 네트워크 항목은 04, 스케일 항목(T12·T12b·T12c·T13·T13b)은 01의 결과입니다.
 
 ### linux/logs/
 
@@ -25,6 +27,9 @@
 | `02-apply.log`, `02-apply-rerun.log` | `vm/02-apply.sh`. 재실행은 T20 재시작 타이밍 수정 후 |
 | `03-verify-full.log` | 01 전체 검증 로그(HPA 감소 시각, 노드·Pod 추이 포함) |
 | `03-verify-network-rerun.log` | 02 네트워크 재실행 로그 |
+| `03-verify-node-egress.log` | 03 실행 로그(새 클러스터 부트스트랩·infra·apply·verify 전체) |
+| `diag-node-egress.sh` | 03 이후 vm-mgmt run-command로 실행한 진단 스크립트(ipBlock·CNP 조건별 bff-b → 노드 :10250) |
+| `02-apply-node-egress-fix.log` | `app-egress-nodes` 추가 후 `vm/02-apply.sh` 재실행 로그 |
 
 Linux판은 Storage 계정 이름(`staksnetval<hash>`) 외에 구독 이름(`<subscription>`)과 API 서버 사설 FQDN(`<cluster>.<guid>.privatelink…`)도 마스킹했습니다.
 

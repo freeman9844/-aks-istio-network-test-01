@@ -5,6 +5,7 @@
 #   ① app-egress-default : 모든 Pod 에 기본 egress(클러스터 내부 + PE 서브넷을 뺀 외부)를 허용한다
 #   ② allow-bff-*        : 해당 Pod 에만 자기 PE IP /32:443 을 더한다
 # 그래서 PE 이외의 기본 egress(CoreDNS, istiod xDS·인증서, 인터넷·Entra ID 등)는 막히지 않는다(T19~T21).
+#   ③ app-egress-nodes   : 노드(host·remote-node)로 가는 egress 를 연다(T22·T23). 아래 설명 참고
 # PE IP 는 01-infra.sh 가 고정 IP 로 만든다(config.sh BLOB_PE_IP·BLOB2_PE_IP). 바꾸면 이 파일도 같이 바꾼다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -65,3 +66,21 @@ spec:
       ports:
         - protocol: TCP
           port: 443
+---
+# ③ 노드 egress 보완(Cilium 전용). AKS Azure CNI powered by Cilium 은 기본 설정(policy-cidr-match-mode 미설정)에서
+#    표준 NetworkPolicy 의 ipBlock 을 Pod·노드 IP 에 매칭하지 않는다. 그래서 ①의 0.0.0.0/0 이 있어도
+#    노드 IP(kubelet, hostNetwork Pod, NodePort 등)로 나가는 연결이 막힌다. 실측: ipBlock 10.50.4.0/24 를 더해도 000,
+#    아래 정책을 더하면 401(연결 성공). host = Pod 가 있는 노드, remote-node = 다른 노드
+#    https://docs.cilium.io/en/stable/network/kubernetes/policy/
+# 허용 규칙의 합집합이므로 ①·② 와 함께 적용된다. 포트를 좁히려면 toPorts 를 더한다
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: app-egress-nodes
+  namespace: app
+spec:
+  endpointSelector: {}             # app 네임스페이스의 모든 Pod
+  egress:
+    - toEntities:
+        - host
+        - remote-node

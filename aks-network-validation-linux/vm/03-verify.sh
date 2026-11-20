@@ -398,6 +398,31 @@ app_pe_tests() {
   add T21 app/bff-b 'mcr.microsoft.com:443 (인터넷)' '연결 성공(≠000)' "$code" "$v" "$(run_note "$r")"
 }
 
+# ---------- T22·T23: bff-b → 노드(kubelet :10250) 기본 egress ----------
+# Cilium 은 노드 IP 를 host(자기 노드)·remote-node(다른 노드) 엔터티로 따로 다루므로
+# 표준 NetworkPolicy 의 ipBlock 0.0.0.0/0 이 노드까지 허용하는지 실측한다. 정책 없는 nomesh/probe 가 대조군
+
+NODE_TO='노드 kubelet :10250 (host/remote-node)'
+node_egress_tests() {
+  local t r c code note
+  kube_ok get nodes -o json >"$WORK/nn.json" || return 1
+  kube_ok get pods -n app -l app=bff-b -o json >"$WORK/nb.json" || return 1
+  t="$(py kube node_targets "$(jq -cn --arg n "@$WORK/nn.json" --arg p "@$WORK/nb.json" '{nodes: $n, pods: $p}')")" || return 1
+
+  log '== bff-b → 노드 egress =='
+  local id kind ip node
+  for id in T22 T23; do
+    if [[ "$id" == T22 ]]; then kind=자기; ip="$(jq -r .own_ip <<<"$t")"; node="$(jq -r .own_node <<<"$t")"
+    else kind=다른; ip="$(jq -r .other_ip <<<"$t")"; node="$(jq -r .other_node <<<"$t")"; fi
+    r="$(pod_curl app bff-b "https://$ip:10250/healthz" k)"; code="$(code_of "$r")"
+    c="$(pod_curl nomesh probe "https://$ip:10250/healthz" k)"
+    note="$(join_note "$kind 노드 $node" "대조군 nomesh/probe=$(code_of "$c")" "$(run_note "$r")")"
+    add "$id" app/bff-b "$kind 노드 $ip:10250 (kubelet)" '연결 성공(≠000)' "$code" \
+      "$(pystr verdict node_reach_verdict "$(jq -cn --arg c "$code" --argjson r "$(ran_of "$r")" --arg cc "$(code_of "$c")" --argjson cr "$(ran_of "$c")" \
+        '{code: $c, ran: $r, control_code: $cc, control_ran: $cr}')")" "$note"
+  done
+}
+
 # ---------- T14 ----------
 
 T14_TO='web-a/web-b/bff-a/bff-b readinessProbe'
@@ -672,6 +697,7 @@ spread_test() {
 if [[ "$ONLY" == all || "$ONLY" == network ]]; then
   run_test T1 "VM $VM_APPGW" "$INGRESS_IP:80 Host web-a.test" 200 network_tests T2 T2c T3 T4 T5 T6 T7 T8 T9 T10 T11
   run_test T16 app/bff-a "$APP_PE_TO" 'PE 분리 + 기본 egress 유지' app_pe_tests T17 T18 T19 T20 T21
+  run_test T22 app/bff-b "$NODE_TO" '연결 성공(≠000)' node_egress_tests T23
   run_test T14 kubelet "$T14_TO" "$T14_EXPECT" probe_test
   t15_observe
 fi

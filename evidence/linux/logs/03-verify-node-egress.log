@@ -1,0 +1,181 @@
+<subscription>
+[16:09:42] 현재 구독: <subscription> / 리소스 그룹: rg-aksnetval-linux-krc (koreacentral)
+[16:09:48] 사전 점검: 할당량·SKU 조회
+할당량 Standard DSv5 Family: 사용 0 / 한도 100, 잔여 100 vCPU (필요 22, 최대 22 중 이 클러스터 사용분 0 제외)
+할당량 Standard BSv2 Family: 잔여 100 vCPU (필요 6, 최대 6 중 기존 VM 0대 제외)
+할당량 Total Regional vCPUs: 잔여 100 (필요 28, 최대 28)
+SKU Standard_D4s_v5: 영역 1·2·3 제한 없음
+SKU Standard_D2s_v5: 영역 1·2·3 제한 없음
+SKU Standard_B2s_v2: 리전 제한 없음
+[16:12:31] 사전 점검 통과
+[16:12:37] RG rg-aksnetval-linux-krc 생성
+[16:12:52] VNet vnet-aksnetval 생성
+[16:12:56] 공인 IP pip-nat-mgmt 생성
+[16:13:12] NAT Gateway nat-mgmt 생성
+[16:13:16] 서브넷 snet-mgmt 생성(NAT Gateway 연결)
+[16:14:26] VM vm-mgmt 생성
+[16:14:34] 역할 'Contributor' 할당
+WARNING: Argument '--condition' is in preview and under development. Reference and support levels: https://aka.ms/CLI_refstatus
+WARNING: Argument '--condition-version' is in preview and under development. Reference and support levels: https://aka.ms/CLI_refstatus
+[16:14:40] 역할 'Role Based Access Control Administrator' 할당
+[16:14:40] vm-mgmt 도구 설치(az, kubectl, python3-venv, jq, dnsutils). 수 분 걸립니다
+[16:16:13] 도구: az 2.93.0, Client Version: v1.37.2, Python 3.10.12
+[16:16:13] 부트스트랩 완료. 다음: local/run.sh infra
+코드 번들 업로드: 36K
+01-infra 시작(vm-mgmt, systemd 유닛 aksnetval-01-infra)
+[07:19:03] 이미 있음: VNet vnet-aksnetval
+[07:19:04] 생성: 서브넷 snet-aks-app
+[07:19:07] 생성: 서브넷 snet-ingress
+[07:19:19] 생성: 서브넷 snet-pe
+[07:19:32] 생성: 서브넷 snet-appgw-sim
+[07:19:45] 생성: 서브넷 snet-other
+[07:19:58] 생성: NSG nsg-aks-app
+[07:20:02] 생성: NSG nsg-ingress
+[07:20:05] 생성: NSG 규칙 nsg-aks-app/allow-appgw-to-ingress
+[07:20:09] 생성: NSG 규칙 nsg-aks-app/deny-other-to-ingress
+[07:20:12] 생성: snet-aks-app ← nsg-aks-app 연결
+[07:20:26] 생성: NSG 규칙 nsg-ingress/deny-appgw-all
+[07:20:29] 생성: snet-ingress ← nsg-ingress 연결
+[07:20:42] 생성: 관리 ID id-aksnetval
+[07:20:51] 생성: id-aksnetval → VNet Network Contributor (전파 대기 60초)
+[07:21:57] 생성: 사설 DNS 영역 privatelink.blob.core.windows.net
+[07:22:33] 생성: DNS VNet 링크 link-vnet-aksnetval
+[07:23:38] 생성: Storage staksnetval<hash>
+[07:24:03] 생성: Private Endpoint pe-blob-aksnetval (10.50.2.4)
+[07:24:59] 생성: DNS zone group pe-blob-aksnetval/default
+[07:25:11] 생성: Storage staksnetvalb<hash>
+[07:25:37] 생성: Private Endpoint pe-blob2-aksnetval (10.50.2.5)
+[07:26:32] 생성: DNS zone group pe-blob2-aksnetval/default
+[07:26:45] 생성: VM vm-appgw-sim
+[07:27:23] 생성: VM vm-other
+[07:28:00] 생성: AKS aks-aksnetval (Private Cluster)
+[07:36:50] 생성: 노드 풀 userz1 (영역 1)
+[07:39:00] 생성: 노드 풀 userz2 (영역 2)
+[07:40:42] 생성: 노드 풀 userz3 (영역 3)
+NAME                             STATUS   ROLES    AGE     VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE             KERNEL-VERSION             CONTAINER-RUNTIME
+aks-system-43317464-vmss000000   Ready    <none>   8m38s   v1.36.5   10.50.4.5     <none>        Ubuntu 24.04.5 LTS   6.8.0-1073-azure (amd64)   containerd://2.3.7-4
+aks-userz1-19645201-vmss000000   Ready    <none>   4m26s   v1.36.5   10.50.4.6     <none>        Ubuntu 24.04.5 LTS   6.8.0-1073-azure (amd64)   containerd://2.3.7-4
+aks-userz2-53413916-vmss000000   Ready    <none>   2m43s   v1.36.5   10.50.4.7     <none>        Ubuntu 24.04.5 LTS   6.8.0-1073-azure (amd64)   containerd://2.3.7-4
+aks-userz3-24764956-vmss000000   Ready    <none>   65s     v1.36.5   10.50.4.8     <none>        Ubuntu 24.04.5 LTS   6.8.0-1073-azure (amd64)   containerd://2.3.7-4
+[07:42:22] 인프라 준비 완료
+01-infra 완료
+코드 번들 업로드: 36K
+02-apply 시작(vm-mgmt, systemd 유닛 aksnetval-02-apply)
+[07:46:51] 생성: 내부 Ingress Gateway (수 분 걸림)
+[07:50:00] 어노테이션 적용: subnet=snet-ingress, ipv4=10.50.1.10
+[07:50:02] Istio 리비전: asm-1-30
+[07:50:02] 적용: 00-namespaces.yaml
+namespace/web created
+namespace/app created
+namespace/nomesh created
+namespace/scale created
+[07:50:02] Gateway principal: cluster.local/ns/aks-istio-ingress/sa/aks-istio-ingressgateway-internal
+[07:50:02] 적용: 10-web.yaml
+serviceaccount/web-a created
+deployment.apps/web-a created
+service/web-a created
+serviceaccount/web-b created
+deployment.apps/web-b created
+service/web-b created
+[07:50:03] 적용: 11-app.yaml
+serviceaccount/bff-a created
+deployment.apps/bff-a created
+service/bff-a created
+serviceaccount/bff-b created
+deployment.apps/bff-b created
+service/bff-b created
+[07:50:03] 적용: 12-nomesh.yaml
+serviceaccount/probe created
+deployment.apps/probe created
+[07:50:03] 적용: 20-istio.yaml (principal 치환)
+peerauthentication.security.istio.io/default created
+peerauthentication.security.istio.io/default created
+gateway.networking.istio.io/web-gateway created
+virtualservice.networking.istio.io/web-a created
+virtualservice.networking.istio.io/web-b created
+authorizationpolicy.security.istio.io/web-allow-ingress created
+authorizationpolicy.security.istio.io/bff-a-allow created
+authorizationpolicy.security.istio.io/bff-b-allow created
+[07:50:04] 적용: 30-netpol.yaml
+networkpolicy.networking.k8s.io/deny-web-to-data created
+[07:50:04] 적용: 31-app-pe-egress.yaml
+networkpolicy.networking.k8s.io/app-egress-default created
+networkpolicy.networking.k8s.io/allow-bff-b-to-blob created
+networkpolicy.networking.k8s.io/allow-bff-a-to-blob2 created
+[07:50:06] 적용: 40-scale.yaml
+serviceaccount/hpa-demo created
+deployment.apps/hpa-demo created
+horizontalpodautoscaler.autoscaling/hpa-demo created
+serviceaccount/zone-fill created
+deployment.apps/zone-fill created
+serviceaccount/zone-spread created
+deployment.apps/zone-spread created
+[07:50:06] 롤아웃 확인: aks-istio-ingress/deployment.apps/aks-istio-ingressgateway-internal-asm-1-30
+[07:50:07] 롤아웃 확인: web/deployment.apps/web-a
+[07:50:18] 롤아웃 확인: web/deployment.apps/web-b
+[07:50:18] 롤아웃 확인: app/deployment.apps/bff-a
+[07:50:18] 롤아웃 확인: app/deployment.apps/bff-b
+[07:50:18] 롤아웃 확인: nomesh/deployment.apps/probe
+[07:50:18] 롤아웃 확인: scale/deployment.apps/hpa-demo
+[07:50:18] 롤아웃 확인: scale/deployment.apps/zone-fill
+[07:50:19] 롤아웃 확인: scale/deployment.apps/zone-spread
+[07:50:19] Gateway ILB IP: 10.50.1.10
+[07:50:19] 적용 완료
+02-apply 완료
+코드 번들 업로드: 36K
+03-verify 시작(vm-mgmt, systemd 유닛 aksnetval-03-verify)
+[07:54:17] == 대조군 ==
+[07:54:49] [T1] 10.50.1.10:80 Host web-a.test: 관측 200 → PASS
+[07:55:20] [T2c] staksnetval<hash>.blob.core.windows.net:443 (TLS): 관측 400 → PASS
+[07:55:21] [T4] bff-a:8080: 관측 200 → PASS
+[07:55:21] [T6] bff-b:8080: 관측 200 → PASS
+[07:55:22] [T11] staksnetval<hash>.blob.core.windows.net (10.50.2.4): 관측 400 → PASS
+[07:55:22] == 차단 테스트 ==
+[07:55:54] [T2] 10.50.1.10:80 Host web-a.test: 관측 000 → PASS
+[07:55:58] [T3] 10.50.1.10:80 (T1 재사용): 관측 200 → PASS
+[07:55:58] [T5] bff-b:8080: 관측 403 → PASS
+[07:55:59] [T7] bff-a:8080: 관측 403 → PASS
+[07:55:59] [T8] bff-a:8080: 관측 000 → PASS
+[07:56:00] [T9] web-b:8080 (Ingress 우회): 관측 403 → PASS
+[07:56:10] [T10] staksnetval<hash>.blob.core.windows.net (10.50.2.4): 관측 000 → PASS
+[07:56:10] == app 네임스페이스 PE egress 분리 ==
+[07:56:21] [T16] staksnetval<hash>.blob.core.windows.net (10.50.2.4): 관측 000 → PASS
+[07:56:22] [T17] staksnetvalb<hash>.blob.core.windows.net (10.50.2.5): 관측 400 → PASS
+[07:56:33] [T18] staksnetvalb<hash>.blob.core.windows.net (10.50.2.5): 관측 000 → PASS
+[07:56:33] [T19] CoreDNS (kubernetes.default 해석): 관측 10.0.0.1 → PASS
+[07:56:34] [T20] istiod (Envoy xDS 동기화, :15021 ready): 관측 200 → PASS
+[07:56:34] [T21] mcr.microsoft.com:443 (인터넷): 관측 200 → PASS
+[07:56:34] == bff-b → 노드 egress ==
+[07:56:45] [T22] 자기 노드 10.50.4.6:10250 (kubelet): 관측 000 → FAIL
+[07:56:56] [T23] 다른 노드 10.50.4.5:10250 (kubelet): 관측 000 → FAIL
+[07:56:56] == readinessProbe rewrite (T14) ==
+[07:56:57] [T14] web-a/web-b/bff-a/bff-b readinessProbe: 관측 Ready 4/4, rewrite 4/4 → PASS
+[07:56:57] == API 서버 사설 확인 (T15 관측) ==
+[07:56:59] T15 관측: {"private_enabled":true,"public_fqdn_enabled":false,"vm_ips":["10.50.4.4"],"readyz_ok":true,"fqdn":"<cluster>.<guid>.privatelink.koreacentral.azmk8s.io"}
+[07:56:59] 결과 저장: /opt/aksnetval/results/20261120-075659.json
+[07:56:59] 판정 요약: FAIL 2, PASS 19
+03-verify 완료
+T1    PASS         200
+T2    PASS         000
+T2c   PASS         400
+T3    PASS         200
+T4    PASS         200
+T5    PASS         403
+T6    PASS         200
+T7    PASS         403
+T8    PASS         000
+T9    PASS         403
+T10   PASS         000
+T11   PASS         400
+T16   PASS         000
+T17   PASS         400
+T18   PASS         000
+T19   PASS         10.0.0.1
+T20   PASS         200
+T21   PASS         200
+T22   FAIL         000
+T23   FAIL         000
+T14   PASS         Ready 4/4, rewrite 4/4
+T15   PASS         private=True, publicFqdn=False, vm=10.50.4.4, readyz=ok, local=NXDOMAIN/실패
+요약: FAIL 2, PASS 20
+결과: <repo>/aks-network-validation-linux/results/20261120-075659.md

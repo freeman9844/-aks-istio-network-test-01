@@ -1,0 +1,200 @@
+[
+  {
+    "Id": "T1",
+    "From": "VM vm-appgw-sim",
+    "To": "10.50.1.10:80 Host web-a.test",
+    "Expect": "200",
+    "Observed": "200",
+    "Verdict": "PASS",
+    "Note": ""
+  },
+  {
+    "Id": "T2",
+    "From": "VM vm-other",
+    "To": "10.50.1.10:80 Host web-a.test",
+    "Expect": "blocked(000)",
+    "Observed": "000",
+    "Verdict": "PASS",
+    "Note": "curl rc=28"
+  },
+  {
+    "Id": "T2c",
+    "From": "VM vm-other",
+    "To": "staksnetval<hash>.blob.core.windows.net:443 (TLS)",
+    "Expect": "연결 성공(≠000)",
+    "Observed": "400",
+    "Verdict": "PASS",
+    "Note": ""
+  },
+  {
+    "Id": "T3",
+    "From": "VM vm-appgw-sim",
+    "To": "10.50.1.10:80 (T1 재사용)",
+    "Expect": "200",
+    "Observed": "200",
+    "Verdict": "PASS",
+    "Note": "nsg-ingress/deny-appgw-all Deny 규칙과 서브넷 연결 확인, T1 결과 재사용"
+  },
+  {
+    "Id": "T4",
+    "From": "web/web-a",
+    "To": "bff-a:8080",
+    "Expect": "200",
+    "Observed": "200",
+    "Verdict": "PASS",
+    "Note": ""
+  },
+  {
+    "Id": "T5",
+    "From": "web/web-a",
+    "To": "bff-b:8080",
+    "Expect": "403",
+    "Observed": "403",
+    "Verdict": "PASS",
+    "Note": ""
+  },
+  {
+    "Id": "T6",
+    "From": "web/web-b",
+    "To": "bff-b:8080",
+    "Expect": "200",
+    "Observed": "200",
+    "Verdict": "PASS",
+    "Note": ""
+  },
+  {
+    "Id": "T7",
+    "From": "web/web-b",
+    "To": "bff-a:8080",
+    "Expect": "403",
+    "Observed": "403",
+    "Verdict": "PASS",
+    "Note": ""
+  },
+  {
+    "Id": "T8",
+    "From": "nomesh/probe",
+    "To": "bff-a:8080",
+    "Expect": "blocked(000)",
+    "Observed": "000",
+    "Verdict": "PASS",
+    "Note": "curl rc=56"
+  },
+  {
+    "Id": "T9",
+    "From": "web/web-a",
+    "To": "web-b:8080 (Ingress 우회)",
+    "Expect": "403",
+    "Observed": "403",
+    "Verdict": "PASS",
+    "Note": ""
+  },
+  {
+    "Id": "T10",
+    "From": "web/web-a",
+    "To": "staksnetval<hash>.blob.core.windows.net (10.50.2.4)",
+    "Expect": "TLS 연결 실패(000)",
+    "Observed": "000",
+    "Verdict": "PASS",
+    "Note": "DNS=10.50.2.4; curl rc=28"
+  },
+  {
+    "Id": "T11",
+    "From": "app/bff-b",
+    "To": "staksnetval<hash>.blob.core.windows.net (10.50.2.4)",
+    "Expect": "TLS 연결 성공(≠000)",
+    "Observed": "400",
+    "Verdict": "PASS",
+    "Note": "DNS=10.50.2.4"
+  },
+  {
+    "Id": "T16",
+    "From": "app/bff-a",
+    "To": "staksnetval<hash>.blob.core.windows.net (10.50.2.4)",
+    "Expect": "TLS 연결 실패(000)",
+    "Observed": "000",
+    "Verdict": "PASS",
+    "Note": "DNS=10.50.2.4; curl rc=28"
+  },
+  {
+    "Id": "T17",
+    "From": "app/bff-a",
+    "To": "staksnetvalb<hash>.blob.core.windows.net (10.50.2.5)",
+    "Expect": "TLS 연결 성공(≠000)",
+    "Observed": "400",
+    "Verdict": "PASS",
+    "Note": "DNS=10.50.2.5"
+  },
+  {
+    "Id": "T18",
+    "From": "app/bff-b",
+    "To": "staksnetvalb<hash>.blob.core.windows.net (10.50.2.5)",
+    "Expect": "TLS 연결 실패(000)",
+    "Observed": "000",
+    "Verdict": "PASS",
+    "Note": "DNS=10.50.2.5; curl rc=28"
+  },
+  {
+    "Id": "T19",
+    "From": "app/bff-b",
+    "To": "CoreDNS (kubernetes.default 해석)",
+    "Expect": "해석 성공",
+    "Observed": "10.0.0.1",
+    "Verdict": "PASS",
+    "Note": ""
+  },
+  {
+    "Id": "T20",
+    "From": "app/bff-b",
+    "To": "istiod (Envoy xDS 동기화, :15021 ready)",
+    "Expect": "200",
+    "Observed": "200",
+    "Verdict": "PASS",
+    "Note": "Pod 기동 2026-11-20T07:50:07Z"
+  },
+  {
+    "Id": "T21",
+    "From": "app/bff-b",
+    "To": "mcr.microsoft.com:443 (인터넷)",
+    "Expect": "연결 성공(≠000)",
+    "Observed": "200",
+    "Verdict": "PASS",
+    "Note": "curl rc=0"
+  },
+  {
+    "Id": "T22",
+    "From": "app/bff-b",
+    "To": "자기 노드 10.50.4.6:10250 (kubelet)",
+    "Expect": "연결 성공(≠000)",
+    "Observed": "000",
+    "Verdict": "FAIL",
+    "Note": "자기 노드 aks-userz1-19645201-vmss000000; 대조군 nomesh/probe=401; curl rc=28"
+  },
+  {
+    "Id": "T23",
+    "From": "app/bff-b",
+    "To": "다른 노드 10.50.4.5:10250 (kubelet)",
+    "Expect": "연결 성공(≠000)",
+    "Observed": "000",
+    "Verdict": "FAIL",
+    "Note": "다른 노드 aks-system-43317464-vmss000000; 대조군 nomesh/probe=401; curl rc=28"
+  },
+  {
+    "Id": "T14",
+    "From": "kubelet",
+    "To": "web-a/web-b/bff-a/bff-b readinessProbe",
+    "Expect": "Ready + 15020 /app-health/ rewrite",
+    "Observed": "Ready 4/4, rewrite 4/4",
+    "Verdict": "PASS",
+    "Note": "모든 Pod가 15020 /app-health/app/readyz 로 rewrite 후 Ready"
+  },
+  {
+    "Id": "T15",
+    "From": "vm-mgmt + 로컬",
+    "To": "API 서버 <cluster>.<guid>.privatelink.koreacentral.azmk8s.io:443",
+    "Expect": "사설 IP·로컬 접근 불가",
+    "Observed": "private=True, publicFqdn=False, vm=10.50.4.4, readyz=ok, local=NXDOMAIN/실패",
+    "Verdict": "PASS",
+    "Note": "API 서버는 사설 IP로만 해석·접근되고 로컬에서는 접근 불가"
+  }
+]

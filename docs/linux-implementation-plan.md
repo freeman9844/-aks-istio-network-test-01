@@ -8,7 +8,7 @@
 
 **Tech Stack:** bash 5, az CLI, kubectl(`az aks install-cli`), Python 3.10+ 표준 라이브러리, pytest(로컬 WSL 에서만), Ubuntu 22.04(vm-mgmt).
 
-**Spec:** `docs/linux-design-spec.md` (T1~T14 규칙은 `docs/design-spec.md`)
+**Spec:** `docs/superpowers/specs/2026-11-20-aks-network-validation-linux-mgmt-vm-design.md` (T1~T14 규칙은 `docs/superpowers/specs/2026-11-19-aks-network-control-validation-design.md`)
 
 ## Global Constraints
 
@@ -263,6 +263,23 @@ def test_api_private_verdict(kw, expected): ...
 - [x] **Step 1: RED** — `test_manifests`(정책 3개 구조), `test_shell::test_config_second_blob_pe`, `test_report::test_order_places_app_pe_tests_after_t11`, `test_verdict`(expected_ip·started_after), `test_verify`(행 순서, T16 FAIL 변조, T20 INCONCLUSIVE)
 - [x] **Step 2: GREEN** — 위 Files 구현, 전체 192 passed
 - [x] **Step 3: 커밋** — `feat(linux): app 네임스페이스 PE egress 분리 검증(T16~T21)`
+
+### Task 9c: bff-b → 노드 egress (T22·T23 추가, Linux 판 전용)
+
+Cilium 이 노드 IP 를 host·remote-node 엔터티로 다루므로, `app-egress-default` 의 ipBlock `0.0.0.0/0` 이 노드까지 허용하는지 실측한다.
+
+**Files:**
+- Modify: `aksnetval/kube.py`(`node_targets`), `aksnetval/verdict.py`(`node_reach_verdict`), `aksnetval/report.py`(ORDER 에 T22·T23), `vm/03-verify.sh`(`node_egress_tests`), `manifests-linux/31-app-pe-egress.yaml`(CiliumNetworkPolicy `app-egress-nodes`)
+
+| Id | From | To | 기대 | 대조군 |
+|---|---|---|---|---|
+| T22 | app/bff-b | 자기 노드 InternalIP:10250(kubelet) | 연결 성공(≠000) | nomesh/probe 같은 IP |
+| T23 | app/bff-b | 다른 노드 InternalIP:10250(kubelet) | 연결 성공(≠000) | nomesh/probe 같은 IP |
+
+- [x] **Step 1: RED** — `test_kube`(node_targets), `test_verdict`(node_reach_verdict 5가지), `test_report`(순서), `test_verify`(행 순서, FAIL 변조, 대조군 실패 시 INCONCLUSIVE)
+- [x] **Step 2: GREEN** — 전체 213 passed
+- [x] **Step 3: 실측** — 정책 3개만으로는 T22·T23 **FAIL**(000, 대조군 401). ipBlock `10.50.4.0/24` 추가도 000. CiliumNetworkPolicy `toEntities: [host, remote-node]` 추가 시 401. Cilium 기본값에서 ipBlock 은 Pod·노드 IP 에 매칭되지 않는다(https://docs.cilium.io/en/stable/network/kubernetes/policy/)
+- [x] **Step 4: 보완** — `test_manifests::test_app_node_egress_uses_cilium_entities` RED → `app-egress-nodes` 추가 GREEN → 재적용 후 `--only network` **22 PASS**(`20261120-082121`)
 
 ### Task 10: 실측과 문서
 

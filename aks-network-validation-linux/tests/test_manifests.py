@@ -92,8 +92,18 @@ def app_pe_policies():
     path = LINUX_MANIFESTS / "31-app-pe-egress.yaml"
     assert path.exists(), "매니페스트 없음: manifests-linux/31-app-pe-egress.yaml"
     docs = [d for d in yaml.safe_load_all(path.read_text(encoding="utf-8")) if d]
-    assert all(d["kind"] == "NetworkPolicy" and d["metadata"]["namespace"] == "app" for d in docs)
-    return {d["metadata"]["name"]: d["spec"] for d in docs}
+    assert all(d["metadata"]["namespace"] == "app" for d in docs)
+    return {d["metadata"]["name"]: d["spec"] for d in docs if d["kind"] == "NetworkPolicy"}
+
+
+def test_app_node_egress_uses_cilium_entities():
+    # Cilium 은 ipBlock 을 노드 IP 에 매칭하지 않으므로(T22·T23 실측) 노드 egress 는 엔터티로 연다
+    yaml = pytest.importorskip("yaml")
+    docs = [d for d in yaml.safe_load_all((LINUX_MANIFESTS / "31-app-pe-egress.yaml").read_text(encoding="utf-8")) if d]
+    cnp = [d for d in docs if d["kind"] == "CiliumNetworkPolicy"]
+    assert len(cnp) == 1 and cnp[0]["apiVersion"] == "cilium.io/v2"
+    assert cnp[0]["metadata"]["name"] == "app-egress-nodes"
+    assert cnp[0]["spec"] == {"endpointSelector": {}, "egress": [{"toEntities": ["host", "remote-node"]}]}
 
 
 def test_app_default_egress_keeps_cluster_and_excludes_pe_subnet(app_pe_policies):

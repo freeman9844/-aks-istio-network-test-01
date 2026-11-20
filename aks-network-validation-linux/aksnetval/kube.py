@@ -23,6 +23,17 @@ def node_zone_counts(nodes: dict) -> dict[str, int]:
     return counts
 
 
+def node_targets(nodes: dict, pods: dict) -> dict:
+    """대상 Pod 가 있는 노드(host 엔터티)와 다른 노드(remote-node 엔터티)의 InternalIP."""
+    ips = {n["metadata"]["name"]: next((a["address"] for a in n.get("status", {}).get("addresses", []) if a.get("type") == "InternalIP"), "")
+           for n in nodes.get("items", [])}
+    own = next((p.get("spec", {}).get("nodeName", "") for p in _alive(pods.get("items", [])) if p.get("spec", {}).get("nodeName")), "")
+    other = next((n for n in sorted(ips) if n != own and ips[n]), "")
+    if not ips.get(own) or not other:
+        raise ValueError(f"노드 IP 를 찾지 못했습니다(own={own or '없음'}, 노드 {len(ips)}대)")
+    return {"own_node": own, "own_ip": ips[own], "other_node": other, "other_ip": ips[other]}
+
+
 def pod_zone_counts(nodes: dict, pods: dict) -> dict:
     zone_of = _zone_of(nodes)
     counts: dict[str, int] = {}
