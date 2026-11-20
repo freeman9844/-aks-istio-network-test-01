@@ -144,7 +144,7 @@ PRD 장표에는 NSG, Istio AuthorizationPolicy, K8s NetworkPolicy로 Tier 간 �
 
 - 설정 확인: `az aks show`의 `autoScalerProfile.balanceSimilarNodeGroups`가 `true`이고, 세 사용자 풀의 영역이 각각 1·2·3인지 확인한다.
 - 확장 유도: `zone-fill`(사용자 풀에만 배치, 영역 분산 제약 없음, CPU requests는 `D2s_v5` 노드 하나에 Pod 하나만 들어가는 크기, 구현값 800m. 1200m은 세 풀이 모두 최대 3대까지 차서 판정이 무의미했음)을 6개로 늘려 사용자 노드 목표를 6대(풀당 2대)로 만든다. 목표(6대)를 최대 용량(9대)보다 작게 잡아야 균형 옵션이 없을 때 3/2/1처럼 치우칠 여지가 남아 판정에 의미가 있다(제 판단). 분산 제약을 일부러 넣지 않아 **스케줄러가 아니라 CAS 설정의 효과**를 본다.
-- 판정: 모든 Pod가 Running이 된 뒤 영역별 사용자 노드 수의 최대-최소 차이가 1 이하이면 PASS. 15분 내 Pending이 남으면 FAIL(할당량 부족 등 원인 출력). 보조 근거로 Pending Pod의 `TriggeredScaleUp` 이벤트에 여러 풀이 함께 나오는지 기록한다(판정에는 쓰지 않음, 이벤트 형식은 PoC 필요).
+- 판정: 모든 Pod가 Running이 된 뒤 영역별 사용자 노드 수의 최대-최소 차이가 1 이하이면 PASS. 15분 내 Pending이 남으면 FAIL(할당량 부족 등 원인 출력). 보조 근거로 Pending Pod의 `TriggeredScaleUp` 이벤트에 여러 풀이 함께 나오는지 기록한다(판정에는 쓰지 않음).
 - 원복: `zone-fill`을 0으로 줄인다. 이후 CAS 축소(기본 10분 이상 소요)의 영역 분포는 판정하지 않고 관찰 값만 기록한다.
 
 ### 5.9 PRD 권장 YAML 반영 (v2 추가)

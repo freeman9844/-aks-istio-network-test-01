@@ -108,8 +108,6 @@ local/run.sh verify                # 약 40분(T13b 의 CAS 축소 대기 포함
 | + NetworkPolicy ipBlock `10.50.4.0/24` | 000(차단) | 401 |
 | + CiliumNetworkPolicy `toEntities: [host, remote-node]` | 401(연결) | 401 |
 
-노드 쪽 포트를 좁히려면 `app-egress-nodes` 에 `toPorts` 를 더합니다(PoC 필요).
-
 - PE 는 고정 IP(`--ip-config … private-ip-address`)로 만들고, 생성 후 NIC 의 실제 IP 가 기대값과 다르면 중단합니다.
 - T10·T11·T16~T18 은 DNS 가 기대 PE IP 로 해석될 때만 판정합니다(다르면 INCONCLUSIVE).
 - `02-apply.sh` 는 정책 적용 후 다음 초로 넘긴 뒤 app 을 재시작합니다. 타임스탬프가 초 단위라 같은 초에 재시작하면 T20 근거가 성립하지 않기 때문입니다.

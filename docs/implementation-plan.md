@@ -163,7 +163,7 @@ Describe 'Assert-NotEmpty' {
 - [ ] **Step 4: `02-apply.ps1` 작성** — `Get-AksKubeconfig` → 모든 kubectl에 `--kubeconfig` → `az aks mesh enable-ingress-gateway --ingress-gateway-type internal` → `aks-istio-ingress/aks-istio-ingressgateway-internal` Service에 `service.beta.kubernetes.io/azure-load-balancer-internal-subnet=snet-ingress`, `service.beta.kubernetes.io/azure-load-balancer-ipv4=10.50.1.10` 어노테이션 → 리비전(`serviceMeshProfile.istio.revisions[0]`)으로 네임스페이스 레이블 → Gateway Pod `spec.serviceAccountName` 조회 → `Assert-NotEmpty` → 치환 적용 → 나머지 적용 → 모든 Deployment `rollout status --timeout 5m`.
 - [ ] **Step 5: 실행·확인**
   - `./02-apply.ps1` → 종료 코드 0
-  - Gateway Service `status.loadBalancer.ingress[0].ip` = `10.50.1.10`. 10분 뒤 어노테이션이 남아 있는지 다시 확인(추가 기능이 덮어쓰는지 PoC 필요). 사라지면 멈추고 보고.
+  - Gateway Service `status.loadBalancer.ingress[0].ip` = `10.50.1.10`. 10분 뒤 어노테이션이 남아 있는지 다시 확인(추가 기능이 덮어쓰는지 확인). 사라지면 멈추고 보고.
   - `web`·`app` Pod 컨테이너 2개(사이드카), `nomesh/probe` 1개
   - 업무 Pod가 `userz*` 노드에만 있음(`kubectl get pod -A -o wide`)
 - [ ] **Step 6: 컨텍스트 미변경 확인** — 실행 전후 `kubectl config current-context` 결과 동일.

@@ -130,7 +130,7 @@ AKS Azure CNI powered by Cilium은 기본 설정(`policy-cidr-match-mode` 미설
 | + NetworkPolicy ipBlock `10.50.4.0/24` | 000(차단) | 401 |
 | + CiliumNetworkPolicy `toEntities: [host, remote-node]` | 401(연결) | 401 |
 
-401은 kubelet이 인증을 요구한 응답이라 TCP·TLS 연결이 성공했다는 뜻입니다. 이 CNP를 `31-app-pe-egress.yaml`에 넣고 다시 실행해 T22·T23 PASS를 확인했습니다. CNP는 PE IP를 열지 않으므로 T16·T18 차단은 그대로입니다. 노드 쪽 포트를 좁히는 `toPorts`는 PoC 필요입니다.
+401은 kubelet이 인증을 요구한 응답이라 TCP·TLS 연결이 성공했다는 뜻입니다. 이 CNP를 `31-app-pe-egress.yaml`에 넣고 다시 실행해 T22·T23 PASS를 확인했습니다. CNP는 PE IP를 열지 않으므로 T16·T18 차단은 그대로입니다.
 
 ## 테스트 매트릭스와 실측 결과
 
@@ -194,18 +194,18 @@ T12b의 0/1/1은 Pod 2개를 세 영역에 둔 결과라 한 영역이 비는 �
 | STRICT mTLS | 사이드카 없는 Pod는 연결이 리셋됨(T8) | 메시 밖 워크로드는 별도 예외 설계 필요 |
 | NetworkPolicy(web) | 사이드카를 거쳐도 PE 대역이 차단됨(T10) | Tier 3 데이터 분리에 NetworkPolicy가 유효 |
 | NetworkPolicy(app, Pod별 PE) | 공통 정책에서 PE 서브넷을 빼고 Pod별 PE IP만 허용하면, 자기 PE만 연결되고 다른 Pod의 PE는 차단(T11·T16~T18). DNS, istiod, 인터넷 egress는 유지(T19~T21) | 같은 네임스페이스 안에서도 Pod 단위로 데이터 저장소 접근을 나눌 수 있음. PE는 고정 IP로 만들어 정책 IP와 일치시킴 |
-| 노드 egress(Cilium) | `ipBlock 0.0.0.0/0`만으로는 노드 IP가 000, CNP `toEntities: [host, remote-node]` 추가 후 401(T22·T23) | egress를 제한하는 네임스페이스에는 노드 egress를 CNP로 명시. 포트 제한(`toPorts`)은 PoC 필요 |
+| 노드 egress(Cilium) | `ipBlock 0.0.0.0/0`만으로는 노드 IP가 000, CNP `toEntities: [host, remote-node]` 추가 후 401(T22·T23) | egress를 제한하는 네임스페이스에는 노드 egress를 CNP로 명시 |
 | Private Cluster | API 서버는 사설 IP 10.50.4.4로만 해석·접근, 로컬은 NXDOMAIN(T15). 관리 VM에서 생성·적용·검증 전 과정이 동작 | 운영 작업은 VNet 안 관리 VM(또는 동급 경로)에서 수행. 관리 ID는 RG 범위 + 조건부 RBAC 관리자로 제한 가능 |
 | HPA | Pods 1 / 60초 정책으로 약 60초 간격으로 축소(T12) | 축소 속도 제한은 `behavior` 정책으로 구현 |
 | CAS 영역 균형 | 영역 레이블이 다른 풀도 유사 그룹으로 묶여 함께 확장, 1/1/1 → 2/2/2(T13) | 영역별 풀 + `balance-similar-node-groups` 조합이 유효 |
 | 강제 분산 + CAS | `DoNotSchedule`·`minDomains: 3`에서 Pending Pod를 보고 CAS가 세 영역을 확장, Pod 2/2/2(T13b) | PRD 권장 `topologySpreadConstraints`를 그대로 사용 가능 |
-| 축소 뒤 분포 | `minReplicas: 3`으로 5 → 3 축소, 3회 모두 1/1/1(T12c) | `minReplicas` ≥ 영역 수(3) 권장. 장애 뒤 재분산은 Descheduler 검토(PoC 필요) |
+| 축소 뒤 분포 | `minReplicas: 3`으로 5 → 3 축소, 3회 모두 1/1/1(T12c) | `minReplicas` ≥ 영역 수(3) 권장 |
 | readinessProbe | STRICT mTLS에서도 `15020 /app-health/...` rewrite로 Ready(T14) | probe를 추가해도 별도 mTLS 예외 불필요 |
 
 ## 한계
 
 - 기능 검증이며 성능 검증은 아닙니다. HTTP 80만 사용했고 TLS 종단은 검증하지 않았습니다.
-- 노드 egress는 kubelet `:10250` 연결만 확인했습니다. `app-egress-nodes`는 노드의 모든 포트를 열므로, 포트를 좁히는 `toPorts` 설계는 PoC 필요입니다.
+- 노드 egress는 kubelet `:10250` 연결만 확인했습니다. `app-egress-nodes`는 노드의 모든 포트를 엽니다.
 - T12는 축소 속도 정책만 검증합니다. 안정화 창(300초)은 검증하지 않습니다.
 - T13은 확장만 판정하고 축소는 관찰만 합니다. 영역별 정확한 노드 수는 기존 Pod 배치에 따라 달라질 수 있습니다.
 - T14는 rewrite된 probe로 Ready가 되는 것만 확인합니다. 앱이 실패할 때 NotReady로 바뀌는 음성 시나리오는 검증하지 않습니다.

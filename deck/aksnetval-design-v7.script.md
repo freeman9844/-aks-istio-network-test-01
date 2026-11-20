@@ -1,6 +1,6 @@
 # 발표 스크립트 — AKS 네트워크 통제 검증 — Linux 관리 VM판 설계와 결과
 
-12장 · L300 · 예상 15분 08초
+12장 · L300 · 예상 14분 36초
 
 ## 1. 검증 샘플 구성 — Private AKS · NSG · Istio · NetworkPolicy
 _1분 41초 · 736자_
@@ -67,11 +67,11 @@ https://learn.microsoft.com/azure/aks/private-clusters
 
 
 ## 6. 네트워크 결과 정리 — 22 PASS, PRD 시사점과 남은 한계
-_1분 18초 · 498자_
+_1분 04초 · 411자_
 
 네트워크 파트를 PRD 설계 관점으로 한 표에 모았습니다. 네트워크는 22건 모두 PASS예요.
 위쪽 세 줄은 PowerShell판과 같습니다. 허용과 차단은 노드 서브넷 NSG에서 걸리고, 서비스 계정 기준 인가로 교차와 우회 호출이 403, 사이드카 없는 Pod는 연결이 끊깁니다. 그다음 세 줄이 Linux판에서 새로 확인한 부분인데요. 공통 정책에서 PE 대역을 빼고 Pod별 /32만 다시 열어서 bff마다 자기 PE만 쓰게 만들 수 있었고, CoreDNS, istiod, 인터넷은 끊기지 않았습니다. 다만 노드로 가는 통신은 표준 정책만으로는 막혀서 CiliumNetworkPolicy로 명시해야 했어요. Private Cluster는 운영을 VNet 안 관리 VM에서 하는 형태가 그대로 동작했고, probe는 STRICT mTLS에서도 따로 예외가 필요 없었습니다.
-아래 상자의 남은 한계도 같이 봐 주세요. 이번 보완은 노드 엔터티 전체를 열었기 때문에, kubelet이나 특정 NodePort만 열도록 toPorts로 좁히는 설계는 아직 PoC 단계입니다. 그리고 모든 호출을 HTTP 80으로 했기 때문에 TLS 종단 위치에 따른 차이는 이번 범위가 아니에요. 그럼 두 번째 파트, 스케일링 검증으로 넘어가겠습니다.
+아래 상자도 같이 봐 주세요. 이번 검증은 기능 검증이고, 모든 호출을 HTTP 80으로 했습니다. 그럼 두 번째 파트, 스케일링 검증으로 넘어가겠습니다.
 
 > 출처: README: aks-network-validation-linux/README.md (최신 결과 26 PASS + T12b INFO)
 설계 문서: docs/superpowers/specs/2026-11-20-aks-network-validation-linux-mgmt-vm-design.md
@@ -122,11 +122,11 @@ https://learn.microsoft.com/azure/aks/cluster-autoscaler
 
 
 ## 11. 결과 ③ PRD 권장 YAML — 강제 분산 2/2/2, minReplicas 3 축소 1/1/1
-_1분 20초 · 538자_
+_1분 19초 · 523자_
 
 앞 장이 기본 스케일링이었다면, 이번 장은 PRD 검토용 YAML에서 가져온 두 가지 결과입니다.
 왼쪽 T13b부터 볼게요. zone-spread에 PRD YAML과 같은 영역 강제 분산, 그러니까 DoNotSchedule과 minDomains 3, nodeTaintsPolicy Honor를 넣었어요. 그리고 노드가 영역마다 한 대인 상태에서 6개로 늘렸습니다. CAS가 세 영역 풀을 한 대씩 늘려 노드가 2, 2, 2가 됐고, 110초 만에 Pod 2, 2, 2로 6개 모두 Running, Pending은 없었습니다. 이벤트는 이번에도 userz2와 userz1 두 건만 남아서, 판정은 Pod와 노드 수로만 했어요.
-오른쪽은 축소 뒤 영역 분포입니다. T12b는 hpa-demo를 2개로 줄인 결과로 1, 2, 2에서 0, 1, 1이 됐는데요. Pod 2개에 영역 3개니까 한 영역이 비는 건 당연하고 차이 1이라 maxSkew 1도 만족합니다. 그래서 기록용 INFO고요, 진짜 질문은 영역 수만큼 남기면 영역마다 하나씩 남느냐였죠. T12c에서 minReplicas 3으로 5개에서 3개로 줄이는 걸 세 번 반복했더니, 매번 1, 2, 2에서 1, 1, 1로 줄었습니다. 보장된 동작은 아니라서 장애 뒤 재분산은 Descheduler를 PoC로 보셔야 합니다.
+오른쪽은 축소 뒤 영역 분포입니다. T12b는 hpa-demo를 2개로 줄인 결과로 1, 2, 2에서 0, 1, 1이 됐는데요. Pod 2개에 영역 3개니까 한 영역이 비는 건 당연하고 차이 1이라 maxSkew 1도 만족합니다. 그래서 기록용 INFO고요, 진짜 질문은 영역 수만큼 남기면 영역마다 하나씩 남느냐였죠. T12c에서 minReplicas 3으로 5개에서 3개로 줄이는 걸 세 번 반복했더니, 매번 1, 2, 2에서 1, 1, 1로 줄었습니다. 다만 이 결과는 보장된 동작이 아니라 이번 실측 결과입니다.
 그럼 스케일링 결과를 PRD 관점으로 정리하겠습니다.
 
 > 출처: 결과 파일: aks-network-validation-linux/results/20261120-050457.md (T12b·T12c·T13b)
@@ -135,10 +135,10 @@ https://github.com/kubernetes-sigs/descheduler
 
 
 ## 12. 스케일링 결과 정리 — 4 PASS + T12b INFO, 전체 26 PASS
-_1분 07초 · 418자_
+_50초 · 320자_
 
 스케일링 파트를 PRD 관점으로 정리하면 네 줄입니다. HPA는 behavior 정책대로 61초, 62초 간격으로 1개씩 줄었고, 세 영역 풀이 함께 2, 2, 2로 늘었으며, PRD의 강제 분산도 CAS와 충돌 없이 2, 2, 2를 만들었습니다. minReplicas를 영역 수로 두면 축소 뒤에도 영역마다 하나씩 남았어요.
-아래 상자가 전체 결론입니다. 네트워크 22건과 스케일링 4건, 합쳐서 26건 PASS에 T12b 하나가 기록용 INFO입니다. 가운데 숫자 카드로 보시면 FAIL과 INCONCLUSIVE는 하나도 없습니다. 남은 PoC는 두 가지예요. 축소 순서는 보장이 아니라서 장애 뒤 영역이 한쪽으로 쏠리면 Descheduler로 다시 나눌지 따로 봐야 하고, 패치 직후 바로 줄기 시작한 걸 보면 안정화 창 300초 동작도 별도로 확인이 필요합니다. 결국 PRD에 적힌 HPA behavior, 영역별 풀, 강제 분산은 그대로 써도 된다는 결론입니다. 이상으로 Linux 관리 VM판 검증 결과 공유를 마치겠습니다. 질문 있으시면 편하게 주세요.
+아래 상자가 전체 결론입니다. 네트워크 22건과 스케일링 4건, 합쳐서 26건 PASS에 T12b 하나가 기록용 INFO입니다. 가운데 숫자 카드로 보시면 FAIL과 INCONCLUSIVE는 하나도 없습니다. 결국 PRD에 적힌 HPA behavior, 영역별 풀, 강제 분산은 그대로 써도 된다는 결론입니다. 이상으로 Linux 관리 VM판 검증 결과 공유를 마치겠습니다. 질문 있으시면 편하게 주세요.
 
 > 출처: README: aks-network-validation-linux/README.md (최신 결과 26 PASS + T12b INFO)
 설계 문서: docs/superpowers/specs/2026-11-20-aks-network-validation-linux-mgmt-vm-design.md

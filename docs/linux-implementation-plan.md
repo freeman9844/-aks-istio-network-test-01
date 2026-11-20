@@ -288,7 +288,7 @@ Cilium 이 노드 IP 를 host·remote-node 엔터티로 다루므로, `app-egres
 - Create(실측 산출물, 커밋 안 함): `aks-network-validation-linux/results/`
 
 - [x] **Step 1: 실행(WSL)** — `local/00-bootstrap.sh` → `local/run.sh infra` → `local/run.sh apply` → `local/run.sh verify`. 실패 시 원인을 고치고 해당 단계만 다시 실행(멱등). run-command 업로드 청크 한도 초과가 나오면 `UPLOAD_CHUNK` 를 줄이고 값을 README 에 적는다.
-- [x] **Step 2: 결과 확인** — 결과 JSON 판정이 T1~T21 **24 PASS + T12b INFO**. 다르면 원인 분석 후 수정·재실행(Private Cluster + Istio 내부 Gateway 조합 문제는 설계 9절 PoC 항목으로 기록).
+- [x] **Step 2: 결과 확인** — 결과 JSON 판정이 T1~T21 **24 PASS + T12b INFO**. 다르면 원인 분석 후 수정·재실행(Private Cluster + Istio 내부 Gateway 조합 문제는 설계 9절에 기록).
 - [x] **Step 3: README 작성** — 목적, 구조도(설계 5.1·5.3), 사전 요구(WSL/Cloud Shell, az login, 권한), 실행 순서, `--only`/`--poll`, T15 설명, 최신 결과 표(1회분만), 정리 방법. 표 셀 안 `|` 는 `\|`.
 - [x] **Step 4: 정리** — `local/99-cleanup.sh --force` 후 `az group exists -n rg-aksnetval-linux-krc` 가 `false` 가 될 때까지 확인
 - [x] **Step 5: 커밋** — `docs(linux): 실행 안내와 실측 결과`
