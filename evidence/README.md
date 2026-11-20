@@ -1,5 +1,35 @@
 # 실측 증적
 
+이 폴더에는 두 실행판의 원본 결과가 있습니다. 메인은 **Linux 관리 VM판**이고, PowerShell판은 이전 판으로 보존합니다.
+
+- [`linux/`](linux/): Linux 관리 VM판(Private Cluster, bash + az CLI), T1~T21. **24건 PASS + T12b INFO**
+- 이 폴더의 `01`~`11`, `logs/`: PowerShell판(공개 API 서버, `03-verify.ps1`), T1~T14. 17건 PASS + T12b INFO
+
+## Linux 관리 VM판 (`linux/`)
+
+2026-11-20 koreacentral, `rg-aksnetval-linux-krc`에서 `local/run.sh verify`로 실행한 결과입니다. `vm-mgmt`가 만든 `results/<시각>.md`·`.json`과 T15 VM 측 근거(`.t15-vm.json`)를 옮겼습니다.
+
+| 순서 | 파일 | 범위 | 결과 |
+|---|---|---|---|
+| 01 | `01-full-run_20261120-050457` | T1~T21 전체 | 23건 PASS + T12b INFO, **T20만 INCONCLUSIVE**. 정책 생성과 app Pod 재시작이 같은 초(초 단위 타임스탬프)라 "정책 이후 기동" 근거가 성립하지 않음 |
+| 02 | `02-network-rerun_20261120-052231` | `--only network`(T1~T11, T14~T21) | `02-apply.sh`가 `sleep 2` 후 재시작하도록 고치고 apply를 다시 실행한 뒤 **20건 PASS**(T20 포함) |
+
+종합 **24건 PASS + T12b INFO**는 네트워크 항목은 02, 스케일 항목(T12·T12b·T12c·T13·T13b)은 01의 결과입니다.
+
+### linux/logs/
+
+| 파일 | 내용 |
+|---|---|
+| `00-bootstrap.log` | 로컬 부트스트랩(사전 점검, vm-mgmt 생성, 권한 부여) |
+| `01-infra.log`, `01-infra-rerun.log` | `vm/01-infra.sh`. 첫 실행에서 PE DNS zone group이 만들어지지 않아(az가 없는 리소스에 `{}`·rc 0을 반환) 판정 함수를 고친 뒤 재실행 |
+| `02-apply.log`, `02-apply-rerun.log` | `vm/02-apply.sh`. 재실행은 T20 재시작 타이밍 수정 후 |
+| `03-verify-full.log` | 01 전체 검증 로그(HPA 감소 시각, 노드·Pod 추이 포함) |
+| `03-verify-network-rerun.log` | 02 네트워크 재실행 로그 |
+
+Linux판은 Storage 계정 이름(`staksnetval<hash>`) 외에 구독 이름(`<subscription>`)과 API 서버 사설 FQDN(`<cluster>.<guid>.privatelink…`)도 마스킹했습니다.
+
+## PowerShell판
+
 2026-11-19 koreacentral 클러스터에서 `03-verify.ps1`을 실행한 원본 결과입니다. 파일 이름은 `<순서>-<의미>_<실행 시각>`이며, 각 실행마다 `.md`(표)와 `.json`(기계 판독용)이 있습니다.
 
 | 순서 | 파일 | 범위 | 결과 |
@@ -16,7 +46,7 @@
 | 10 | `10-v4-full-run_20261120-100357` | T1~T14 + T12c 전체 | T12c만 스크립트 오류로 INCONCLUSIVE, 나머지 16건 PASS + T12b INFO |
 | 11 | `11-v4-t12c-rerun_20261120-100846` | T12c(`-Only Floor`) | **PASS** — minReplicas 3 축소 3회 모두 1/1/1 |
 
-## logs/
+### logs/(PowerShell판)
 
 | 파일 | 내용 |
 |---|---|

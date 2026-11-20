@@ -1,0 +1,38 @@
+코드 번들 업로드: 32K
+01-infra 시작(vm-mgmt, systemd 유닛 aksnetval-01-infra)
+[04:10:45] 이미 있음: VNet vnet-aksnetval
+[04:10:46] 이미 있음: 서브넷 snet-aks-app
+[04:10:47] 이미 있음: 서브넷 snet-ingress
+[04:10:48] 이미 있음: 서브넷 snet-pe
+[04:10:49] 이미 있음: 서브넷 snet-appgw-sim
+[04:10:50] 이미 있음: 서브넷 snet-other
+[04:10:51] 이미 있음: NSG nsg-aks-app
+[04:10:51] 이미 있음: NSG nsg-ingress
+[04:10:53] 이미 있음: NSG 규칙 nsg-aks-app/allow-appgw-to-ingress
+[04:10:53] 이미 있음: NSG 규칙 nsg-aks-app/deny-other-to-ingress
+[04:10:54] 이미 있음: snet-aks-app ← nsg-aks-app 연결
+[04:10:55] 이미 있음: NSG 규칙 nsg-ingress/deny-appgw-all
+[04:10:56] 이미 있음: snet-ingress ← nsg-ingress 연결
+[04:10:57] 이미 있음: 관리 ID id-aksnetval
+[04:11:00] 이미 있음: id-aksnetval → VNet Network Contributor
+[04:11:01] 이미 있음: 사설 DNS 영역 privatelink.blob.core.windows.net
+[04:11:02] 이미 있음: DNS VNet 링크 link-vnet-aksnetval
+[04:11:03] 이미 있음: Storage staksnetval<hash>
+[04:11:05] 이미 있음: Private Endpoint pe-blob-aksnetval (10.50.2.4)
+[04:11:08] 생성: DNS zone group pe-blob-aksnetval/default
+[04:11:11] 이미 있음: Storage staksnetvalb<hash>
+[04:11:12] 이미 있음: Private Endpoint pe-blob2-aksnetval (10.50.2.5)
+[04:11:15] 생성: DNS zone group pe-blob2-aksnetval/default
+[04:11:28] 이미 있음: VM vm-appgw-sim
+[04:11:28] 이미 있음: VM vm-other
+[04:11:31] 이미 있음: AKS aks-aksnetval (Private Cluster)
+[04:11:33] 이미 있음: 노드 풀 userz1 (영역 1)
+[04:11:34] 이미 있음: 노드 풀 userz2 (영역 2)
+[04:11:36] 이미 있음: 노드 풀 userz3 (영역 3)
+NAME                             STATUS   ROLES    AGE     VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE             KERNEL-VERSION             CONTAINER-RUNTIME
+aks-system-17044258-vmss000000   Ready    <none>   14m     v1.36.5   10.50.4.5     <none>        Ubuntu 24.04.5 LTS   6.8.0-1073-azure (amd64)   containerd://2.3.7-4
+aks-userz1-89508190-vmss000000   Ready    <none>   9m48s   v1.36.5   10.50.4.6     <none>        Ubuntu 24.04.5 LTS   6.8.0-1073-azure (amd64)   containerd://2.3.7-4
+aks-userz2-52674127-vmss000000   Ready    <none>   7m52s   v1.36.5   10.50.4.7     <none>        Ubuntu 24.04.5 LTS   6.8.0-1073-azure (amd64)   containerd://2.3.7-4
+aks-userz3-14185147-vmss000000   Ready    <none>   6m24s   v1.36.5   10.50.4.8     <none>        Ubuntu 24.04.5 LTS   6.8.0-1073-azure (amd64)   containerd://2.3.7-4
+[04:11:37] 인프라 준비 완료
+01-infra 완료

@@ -1,0 +1,20 @@
+[12:36:03] 현재 구독: <subscription> / 리소스 그룹: rg-aksnetval-linux-krc (koreacentral)
+[12:36:07] 사전 점검: 할당량·SKU 조회
+할당량 Standard DSv5 Family: 사용 0 / 한도 100, 잔여 100 vCPU (필요 22, 최대 22 중 이 클러스터 사용분 0 제외)
+할당량 Standard BSv2 Family: 잔여 98 vCPU (필요 4, 최대 6 중 기존 VM 1대 제외)
+할당량 Total Regional vCPUs: 잔여 98 (필요 26, 최대 28)
+SKU Standard_D4s_v5: 영역 1·2·3 제한 없음
+SKU Standard_D2s_v5: 영역 1·2·3 제한 없음
+SKU Standard_B2s_v2: 리전 제한 없음
+[12:38:39] 사전 점검 통과
+[12:38:40] RG rg-aksnetval-linux-krc 있음: 건너뜀
+[12:38:41] VNet vnet-aksnetval 있음: 건너뜀
+[12:38:46] 서브넷 snet-mgmt 있음: NAT Gateway 연결 확인
+[12:38:47] VM vm-mgmt 있음: 건너뜀
+[12:38:59] 역할 'Contributor' 할당
+WARNING: Argument '--condition' is in preview and under development. Reference and support levels: https://aka.ms/CLI_refstatus
+WARNING: Argument '--condition-version' is in preview and under development. Reference and support levels: https://aka.ms/CLI_refstatus
+[12:39:05] 역할 'Role Based Access Control Administrator' 할당
+[12:39:05] vm-mgmt 도구 설치(az, kubectl, python3-venv, jq, dnsutils). 수 분 걸립니다
+[12:40:38] 도구: az 2.93.0, Client Version: v1.37.2, Python 3.10.12
+[12:40:38] 부트스트랩 완료. 다음: local/run.sh infra
