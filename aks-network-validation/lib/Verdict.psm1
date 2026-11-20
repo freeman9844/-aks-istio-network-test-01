@@ -175,6 +175,32 @@ function Get-PodSpreadVerdict {
   [pscustomobject]@{ Verdict = $v; Reason = "영역별 Pod 수 차이 $diff $op 1 ($summary)" }
 }
 
+function Get-ZoneFloorVerdict {
+  # T12c: minReplicas 3 으로 축소한 각 회차에서 세 영역 모두 Pod 가 1개 이상 남았는지
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)][AllowEmptyCollection()][hashtable[]]$Rounds,
+    [Parameter(Mandatory)][int]$Expected
+  )
+  if ($Rounds.Count -eq 0) { return [pscustomobject]@{ Verdict = 'INCONCLUSIVE'; Reason = '측정한 회차 없음' } }
+  $fmt = { param($c) ('1', '2', '3' | ForEach-Object { if ($c.ContainsKey($_)) { [int]$c[$_] } else { 0 } }) -join '/' }
+  $all = (@(for ($i = 0; $i -lt $Rounds.Count; $i++) { "$($i + 1)회 $(& $fmt $Rounds[$i])" })) -join ', '
+  for ($i = 0; $i -lt $Rounds.Count; $i++) {
+    $c = $Rounds[$i]
+    $vals = foreach ($z in '1', '2', '3') { if ($c.ContainsKey($z)) { [int]$c[$z] } else { 0 } }
+    if (($vals | Measure-Object -Sum).Sum -ne $Expected) {
+      return [pscustomobject]@{ Verdict = 'INCONCLUSIVE'; Reason = "$($i + 1)회 Running Pod 수가 $Expected 이 아님 ($all)" }
+    }
+  }
+  for ($i = 0; $i -lt $Rounds.Count; $i++) {
+    $vals = foreach ($z in '1', '2', '3') { if ($Rounds[$i].ContainsKey($z)) { [int]$Rounds[$i][$z] } else { 0 } }
+    if (($vals | Measure-Object -Minimum).Minimum -lt 1) {
+      return [pscustomobject]@{ Verdict = 'FAIL'; Reason = "$($i + 1)회에 Pod가 없는 영역 발생 ($all)" }
+    }
+  }
+  [pscustomobject]@{ Verdict = 'PASS'; Reason = "$($Rounds.Count)회 모두 세 영역에 1개 이상 ($all)" }
+}
+
 function Get-ProbeRewriteVerdict {
   # T14: 각 Pod 의 app 컨테이너 readinessProbe 가 Istio 에 의해 15020 /app-health/ 로 바뀌었고 Ready 인지
   # 입력: Name, Ready(bool), Port, Path(probe 없으면 $null)
@@ -206,4 +232,4 @@ function Assert-NotEmpty {
   if ([string]::IsNullOrWhiteSpace($Value)) { throw "$Name 값이 비어 있습니다" }
 }
 
-Export-ModuleMember -Function Get-HttpVerdict, Test-PeIp, Get-TlsVerdict, Get-HpaVerdict, Get-ZoneBalanceVerdict, Get-NsgReuseVerdict, Get-PodSpreadVerdict, Get-ProbeRewriteVerdict, Assert-NotEmpty
+Export-ModuleMember -Function Get-HttpVerdict, Test-PeIp, Get-TlsVerdict, Get-HpaVerdict, Get-ZoneBalanceVerdict, Get-NsgReuseVerdict, Get-PodSpreadVerdict, Get-ZoneFloorVerdict, Get-ProbeRewriteVerdict, Assert-NotEmpty

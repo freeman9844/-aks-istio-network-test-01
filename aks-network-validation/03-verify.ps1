@@ -1,9 +1,9 @@
 #Requires -Version 7
 # 검증 실행. 전용 kubeconfig(results/.kubeconfig)만 쓰고 현재 kubectl 컨텍스트는 바꾸지 않는다.
-# 사용: ./03-verify.ps1 [-Only All|Network|Hpa|Zone|Spread] [-ResourceGroup <이름>]
+# 사용: ./03-verify.ps1 [-Only All|Network|Hpa|Floor|Zone|Spread] [-ResourceGroup <이름>]
 [CmdletBinding()]
 param(
-  [ValidateSet('All', 'Network', 'Hpa', 'Zone', 'Spread')][string]$Only = 'All',
+  [ValidateSet('All', 'Network', 'Hpa', 'Floor', 'Zone', 'Spread')][string]$Only = 'All',
   [string]$ResourceGroup
 )
 
@@ -233,7 +233,45 @@ function Invoke-HpaTest {
     $diff = ($vals | Measure-Object -Maximum).Maximum - ($vals | Measure-Object -Minimum).Minimum
     $null = Add-Result 'T12b' '—' 'scale/hpa-demo 영역 분포(DoNotSchedule, minDomains 3)' '기록(판정 없음)' `
       "축소 전 $(Format-ZoneShort $zBefore.Counts) → 축소 후 $(Format-ZoneShort $zAfter.Counts)" 'INFO' `
-      "축소 후 영역별 Pod 수 차이 $diff (Running $($zAfter.Running)); 분산 제약은 축소 시 적용되지 않으므로 관찰값"
+      "축소 후 영역별 Pod 수 차이 $diff (Running $($zAfter.Running)); Pod 2개·영역 3개라 빈 영역 1개는 필연. 영역 하한은 T12c(minReplicas 3)에서 판정"
+  } catch {
+    $null = Add-Result $id '—' $to $expect '오류' 'INCONCLUSIVE' "실행 오류: $($_.Exception.Message)"
+  } finally {
+    try { Set-HpaMin -Min 5; Write-Host 'hpa-demo minReplicas 5 원복' }
+    catch { Write-Warning "hpa-demo minReplicas 원복 실패: $($_.Exception.Message)" }
+  }
+}
+
+function Invoke-ZoneFloorTest {
+  # T12c: 분산 제약은 축소 때 적용되지 않는다. minReplicas 3(=영역 수)으로 축소해도 세 영역에 1개씩 남는지 3회 반복 확인
+  $id = 'T12c'; $to = 'scale/hpa-demo (minReplicas 5→3, 3회 반복)'; $expect = '매회 세 영역 모두 Pod ≥1'
+  Write-Host '== 축소 뒤 영역 하한 (T12c) =='
+  $rounds = [System.Collections.Generic.List[hashtable]]::new()
+  $log = [System.Collections.Generic.List[string]]::new()
+  try {
+    foreach ($n in 1..3) {
+      Set-HpaMin -Min 5
+      $ok = Wait-Until -TimeoutSec 300 -IntervalSec 5 -Condition {
+        $z = Get-PodZoneCounts -Namespace 'scale' -Selector 'app=hpa-demo'
+        $z.Running -eq 5 -and $z.Pending -eq 0
+      }
+      if (-not $ok) {
+        $null = Add-Result $id '—' $to $expect "${n}회 시작 조건 미충족" 'INCONCLUSIVE' "hpa-demo 5개 Running 아님, 5분 대기 초과; $($log -join ', ')"
+        return
+      }
+      $zBefore = Get-PodZoneCounts -Namespace 'scale' -Selector 'app=hpa-demo'
+      Set-HpaMin -Min 3
+      $null = Wait-Until -TimeoutSec 600 -IntervalSec 5 -Condition {
+        $r = [int](Invoke-Kube @('get', 'deploy', 'hpa-demo', '-n', 'scale', '-o', 'jsonpath={.spec.replicas}'))
+        $r -eq 3 -and (Get-PodZoneCounts -Namespace 'scale' -Selector 'app=hpa-demo').Running -eq 3
+      }
+      $zAfter = Get-PodZoneCounts -Namespace 'scale' -Selector 'app=hpa-demo'
+      $line = "${n}회 $(Format-ZoneShort $zBefore.Counts)→$(Format-ZoneShort $zAfter.Counts)"
+      Write-Host "  $line"
+      $log.Add($line); $rounds.Add($zAfter.Counts)
+    }
+    $fv = Get-ZoneFloorVerdict -Rounds $rounds.ToArray() -Expected 3
+    $null = Add-Result $id '—' $to $expect ($log -join ', ') $fv.Verdict $fv.Reason
   } catch {
     $null = Add-Result $id '—' $to $expect '오류' 'INCONCLUSIVE' "실행 오류: $($_.Exception.Message)"
   } finally {
@@ -417,9 +455,10 @@ function Invoke-SpreadTest {
 
 if ($Only -in 'All', 'Network') { Invoke-NetworkTests; Invoke-ProbeTest }
 if ($Only -in 'All', 'Hpa') { Invoke-HpaTest }
+if ($Only -in 'All', 'Floor') { Invoke-ZoneFloorTest }
 if ($Only -in 'All', 'Zone') { Invoke-ZoneTest }
 if ($Only -in 'All', 'Spread') { Invoke-SpreadTest }
 
-$order = 'T1', 'T2', 'T2c', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12', 'T12b', 'T13', 'T13b', 'T14'
+$order = 'T1', 'T2', 'T2c', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12', 'T12b', 'T12c', 'T13', 'T13b', 'T14'
 $sorted = @($Results | Sort-Object { [array]::IndexOf($order, $_.Id) })
 $null = Save-Results -Results $sorted

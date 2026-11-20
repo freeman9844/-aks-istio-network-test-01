@@ -5,7 +5,7 @@
 - 네트워크 통제(T1~T11): NSG, Istio(`AuthorizationPolicy`, STRICT mTLS), Cilium `NetworkPolicy`, Blob Private Endpoint
 - HPA 축소 속도(T12): `scaleDown` 정책 Pods 1 / 60s
 - 영역 균형(T13): Cluster Autoscaler `balance-similar-node-groups=true`, 영역별 사용자 풀 `userz1`/`userz2`/`userz3`
-- PRD 권장 YAML 반영(v2): 영역 강제 분산 `DoNotSchedule` + `minDomains: 3` 과 CAS 확장(T13b), HPA 축소 후 영역 분포 관찰(T12b), STRICT mTLS 에서 readinessProbe rewrite(T14), `hpa-demo` 의 `replicas` 생략
+- PRD 권장 YAML 반영(v2): 영역 강제 분산 `DoNotSchedule` + `minDomains: 3` 과 CAS 확장(T13b), HPA 축소 후 영역 분포 관찰(T12b)과 `minReplicas: 3` 축소 뒤 영역 하한(T12c, v3), STRICT mTLS 에서 readinessProbe rewrite(T14), `hpa-demo` 의 `replicas` 생략
 
 설계: `docs/superpowers/specs/2026-11-19-aks-network-control-validation-design.md`
 
@@ -41,12 +41,13 @@ cd aks-network-validation
 - 모든 스크립트는 `[-ResourceGroup <이름>]` 을 받는다. 이름·주소는 `config.ps1` 의 `$Cfg` 에만 있다.
 - `01-infra.ps1` 은 이미 있는 리소스를 건너뛰므로 다시 실행해도 된다.
 - `02`·`03` 은 전용 kubeconfig `results/.kubeconfig` 만 쓰고 현재 kubectl 컨텍스트는 바꾸지 않는다.
-- 일부만 검증: `./03-verify.ps1 -Only Network|Hpa|Zone|Spread` (기본 `All`)
+- 일부만 검증: `./03-verify.ps1 -Only Network|Hpa|Floor|Zone|Spread` (기본 `All`)
 
 | 구간 | 실측 소요 |
 |---|---|
 | `-Only Network` (T1~T11, T14) | 약 2.5분 (VM run-command 1회 30~40초) |
-| `-Only Hpa` (T12, T12b) | 약 3~5분 (5 → 2, 1분에 1개) |
+| `-Only Hpa` (T12, T12b) | 약 3~8분 (5 → 2, 1분에 1개. 첫 감소까지 최대 약 4분) |
+| `-Only Floor` (T12c) | 약 6~10분 (5 → 3 축소를 3회 반복) |
 | `-Only Zone` (T13) | 약 2분 + 시작 전 노드가 풀마다 1대로 줄 때까지 대기(최대 25분, 직전 Zone 실행 뒤 약 13분) |
 | `-Only Spread` (T13b) | 약 2분 + 같은 대기(전체 실행에서는 T13 뒤 약 12분 대기) |
 
@@ -69,9 +70,24 @@ cd aks-network-validation
 - Blob FQDN 이 사설 IP(`snet-pe`)가 아니라 공인 IP 로 해석되면 T10/T11 은 `INCONCLUSIVE` (Note `DNS=<IP>`).
 - T12: 샘플 값이 1씩만 줄고(같은 값 반복 허용, 예: 5,5,4,4,3,2) 감소 간격이 모두 55초 이상(60초 정책, 샘플 오차 허용)이면 PASS. 5 → 3 같은 2단계 감소는 FAIL.
 - T13: 사용자 노드의 영역별 개수 max − min ≤ 1 이고 Pending Pod 가 없으면 PASS. Pending 이 남으면 확장 여부와 관계없이 FAIL(사유 `Pending Pod가 N개 남아 있습니다`, 할당량 부족 등). Pending 이 없는데 확장 후 사용자 노드 총수가 확장 전보다 늘지 않으면 `INCONCLUSIVE`(사유 `CAS 확장 없음`). 시작 전 풀마다 1대로 25분 안에 돌아오지 않거나 CAS 설정·풀 영역이 다르면 `INCONCLUSIVE`.
-- T12b: 축소 전(5개)과 축소 후(2개) `hpa-demo` Pod 의 영역 분포를 기록만 한다(`INFO`).
+- T12b: 축소 전(5개)과 축소 후(2개) `hpa-demo` Pod 의 영역 분포를 기록만 한다(`INFO`). Pod 2개·영역 3개라 빈 영역 1개는 당연하므로 판정 근거로 쓰지 않는다.
+- T12c: `minReplicas` 를 5 → 3(영역 수)으로 낮추는 축소를 3회 반복해, 매회 Running 3개가 세 영역에 1개 이상씩 있으면 PASS. 한 회라도 빈 영역이 있으면 FAIL, Running 이 3개가 아니면 `INCONCLUSIVE`.
 - T13b: 노드 1/1/1 에서 `zone-spread`(DoNotSchedule, `minDomains: 3`, `nodeTaintsPolicy: Honor`, CPU 800m) 를 6개로 늘려 15분 안에 Pending 없이 영역별 Pod 수 차이 ≤ 1 이면 PASS. Pending 이 남으면 FAIL, Running 합계가 6이 아니면 `INCONCLUSIVE`.
 - T14: `web-a`/`web-b`/`bff-a`/`bff-b` Pod 의 app 컨테이너 readinessProbe 가 `15020` `/app-health/...` 로 rewrite 되고 모두 Ready 면 PASS. probe 없음·rewrite 없음·Not Ready 중 하나라도 있으면 FAIL.
+
+실측 v3(T12c 추가, 전체 실행 `results/20261120-100357.*` + T12c 재실행 `results/20261120-100846.*`): 17/17 PASS + INFO 1.
+
+| Id | 결과 |
+|---|---|
+| T1~T11 | 모두 PASS (T2 `rc=28`, T8 `rc=56`, T10 `DNS=10.50.2.4`) |
+| T12 | 5,4,3,2, 간격 59초·64초 → PASS (패치 후 첫 감소 229초, 판정 외) |
+| T12b | 축소 전 2/1/2 → 축소 후 1/0/1 → INFO (Pod 2개라 빈 영역 1개는 필연) |
+| T12c | 1회 2/1/2→**1/1/1**, 2회 1/2/2→**1/1/1**, 3회 1/2/2→**1/1/1** → PASS |
+| T13 | 1/1/1 → 2/2/2 (TriggeredScaleUp `userz1/2/3 1->2`), 6/6 Running 128초 → PASS |
+| T13b | 노드 1/1/1 → 2/2/2, Pod 2/2/2, 6/6 Running 132초, 이벤트에 세 풀 모두 기록 → PASS |
+| T14 | Ready 4/4, rewrite 4/4 → PASS |
+
+전체 실행에서 T12c 는 문자열 `"$n회"` 를 PowerShell 이 변수 `$n회` 로 해석해 StrictMode 오류(`INCONCLUSIVE`)가 났다. `"${n}회"` 로 고친 뒤 같은 클러스터에서 `-Only Floor` 로 다시 실행했다.
 
 실측 v2(권장 YAML 반영, 전체 실행 `results/20261119-233942.*`): 16/16 PASS + INFO 1.
 
@@ -79,7 +95,7 @@ cd aks-network-validation
 |---|---|
 | T1~T11 | 모두 PASS (T2 `rc=28`, T8 `rc=56`, T10 `DNS=10.50.2.4`) |
 | T12 | 5,4,3,2, 간격 63초·57초 → PASS |
-| T12b | 축소 전 2/2/1 → 축소 후 **1/0/1** → INFO (영역 2 에 Pod 0개) |
+| T12b | 축소 전 2/2/1 → 축소 후 1/0/1 → INFO |
 | T13 | 시작 1/1/1 → 2/2/2 (TriggeredScaleUp `userz1/2/3 1->2`), 6/6 Running 125초 → PASS |
 | T13b | 노드 1/1/1 → 2/2/2, Pod **2/2/2**, 6/6 Running 110초, Pending 없음 → PASS |
 | T14 | Ready 4/4, rewrite 4/4 (`15020 /app-health/app/readyz`) → PASS |
@@ -88,11 +104,11 @@ cd aks-network-validation
 
 ### 해석 시 주의
 
-1. **T12 는 축소 속도 정책(Pods 1 / 60s)만 검증한다.** 안정화 창(300초)은 검증하지 않는다. 패치 후 첫 감소까지 6~16초밖에 걸리지 않았는데, 이 값을 PRD 의 안정화 동작 근거로 쓰지 말 것.
+1. **T12 는 축소 속도 정책(Pods 1 / 60s)만 검증한다.** 안정화 창(300초)은 검증하지 않는다. 패치 후 첫 감소까지 실행마다 6~229초로 달랐다. 이 값을 PRD 의 안정화 동작 근거로 쓰지 말 것.
 2. **T13 은 확장만 판정하고 축소는 관찰만 한다.** `zone-fill` 을 0 으로 되돌린 뒤의 CAS 축소는 기다리거나 판정하지 않는다.
 3. **영역 레이블이 다른 풀을 CAS 가 유사 노드 그룹으로 보는지**는 문서로 단정하지 않고 이 샘플 결과(한 번의 scale-up 이 세 풀에 나뉨, 3/2/2)로 확인한다. 영역별 정확한 개수는 기존 Pod 배치에 따라 달라진다(예: 2/2/2 또는 3/2/2).
-4. **T12b 는 축소가 영역 분포를 깨뜨릴 수 있음을 보여준다.** 이번 실행에서 5 → 2 축소 뒤 1/0/1 로 영역 2 에 Pod 가 없었다. `topologySpreadConstraints` 는 배치 때만 적용되고 ReplicaSet 축소는 영역을 고려하지 않는다. 축소 후에도 영역마다 1개 이상이 필요하면 `minReplicas` 를 영역 수(3) 이상으로 두거나 Descheduler(`RemovePodsViolatingTopologySpreadConstraint`) 를 검토한다(PoC 필요).
-5. **T13b 의 TriggeredScaleUp 이벤트에는 `userz3 1->2` 만 남았지만 노드는 1/1/1 → 2/2/2 로 늘었다.** 이벤트는 Pod 별로 중복 제거되어 일부만 보일 수 있으므로 판정은 노드·Pod 수로만 한다. CAS 가 Pending Pod 의 분산 제약을 시뮬레이션해 Pod 가 들어갈 영역의 풀을 늘렸다고 해석한다.
+4. **T12b 의 1/0/1 은 발견이 아니다.** Pod 2개를 세 영역에 두면 한 영역은 반드시 비고, 차이 1 은 `maxSkew: 1` 도 만족한다. 그래서 영역 하한은 T12c 로 따로 확인한다. T12c 는 `minReplicas: 3` 으로 3회 축소해 매번 1/1/1 이었다. `topologySpreadConstraints` 는 배치 때만 적용되므로, 이 결과는 ReplicaSet 축소 규칙(같은 노드에 몰린 Pod·최근 생성 Pod 를 먼저 삭제)이 확장 때 추가된 Pod 를 지운 결과로 해석한다(추정). 보장된 동작은 아니며 노드 장애 등으로 분포가 틀어진 뒤의 재분산은 Descheduler 검토가 필요하다(PoC 필요).
+5. **T13b 의 TriggeredScaleUp 이벤트는 실행마다 다르다.** v2 에는 `userz3 1->2` 만, v3 에는 세 풀이 모두 남았고 노드는 두 번 모두 1/1/1 → 2/2/2 로 늘었다. 이벤트는 Pod 별로 중복 제거되어 일부만 보일 수 있으므로 판정은 노드·Pod 수로만 한다. CAS 가 Pending Pod 의 분산 제약을 시뮬레이션해 Pod 가 들어갈 영역의 풀을 늘렸다고 해석한다.
 6. **시스템 노드 1대는 검증 전용 구성이다.** 가용성이 없다. PRD 에서는 Ingress Gateway 용 전용 `ingress` 풀을 두는 구성을 권장한다.
 
 ## 알려진 한계

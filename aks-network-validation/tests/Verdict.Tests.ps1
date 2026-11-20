@@ -106,3 +106,22 @@ Describe 'Get-ProbeRewriteVerdict (T14)' {
     (Get-ProbeRewriteVerdict -Pods @()).Verdict | Should -Be 'INCONCLUSIVE'
   }
 }
+
+Describe 'Get-ZoneFloorVerdict (T12c)' {
+  It '3회 모두 1/1/1 → PASS' {
+    $r = @(@{ '1' = 1; '2' = 1; '3' = 1 }, @{ '1' = 1; '2' = 1; '3' = 1 }, @{ '1' = 1; '2' = 1; '3' = 1 })
+    (Get-ZoneFloorVerdict -Rounds $r -Expected 3).Verdict | Should -Be 'PASS'
+  }
+  It '한 회라도 빈 영역(2/0/1) → FAIL' {
+    $r = @(@{ '1' = 1; '2' = 1; '3' = 1 }, @{ '1' = 2; '3' = 1 })
+    $v = Get-ZoneFloorVerdict -Rounds $r -Expected 3
+    $v.Verdict | Should -Be 'FAIL'
+    $v.Reason | Should -Match '2회'
+  }
+  It 'Running 수가 목표와 다르면 INCONCLUSIVE' {
+    (Get-ZoneFloorVerdict -Rounds @(@{ '1' = 1; '2' = 1 }) -Expected 3).Verdict | Should -Be 'INCONCLUSIVE'
+  }
+  It '회차 없음 → INCONCLUSIVE' {
+    (Get-ZoneFloorVerdict -Rounds @() -Expected 3).Verdict | Should -Be 'INCONCLUSIVE'
+  }
+}
