@@ -25,45 +25,67 @@ AKS 아키텍처 설계에 넣은 통제가 실제로 동작하는지 작은 샘
 | [`aks-network-validation-linux/`](aks-network-validation-linux/) | **메인.** 로컬 부트스트랩·실행(`local/`), VM 안 단계 스크립트(`vm/`), Python 판정(`aksnetval/`), pytest, 매니페스트(`manifests/`), [실행 안내 README](aks-network-validation-linux/README.md) |
 | [`docs/linux-design-spec.md`](docs/linux-design-spec.md) | Linux판 설계 문서: 관리 VM, Private Cluster, 권한, T15~T23 판정 규칙 |
 | [`docs/linux-implementation-plan.md`](docs/linux-implementation-plan.md) | Linux판 구현 계획(Task 1~10, 9b, 9c) |
-| [`deck/`](deck/) | 설계·결과 장표 PPTX, msdeck YAML 원본, 발표 노트, 렌더링 PNG. 최신은 v6 |
+| [`deck/`](deck/) | 설계·결과 장표 PPTX, msdeck YAML 원본, 발표 노트, 렌더링 PNG. 최신은 v7 |
 | [`evidence/`](evidence/) | 실측 결과(md/json)와 실행 로그. Linux판은 [`evidence/linux/`](evidence/linux/). [색인](evidence/README.md) |
 | [`docs/design-spec.md`](docs/design-spec.md), [`docs/implementation-plan.md`](docs/implementation-plan.md) | 이전 판 설계 문서(T1~T14 토폴로지·정책·판정 규칙의 원본)와 구현 계획 |
 
 ## 장표
 
-[`deck/aksnetval-design-v6.pptx`](deck/aksnetval-design-v6.pptx)(8장, Linux 관리 VM판 결과). 이미지를 클릭하면 원본 크기로 열립니다. 발표 노트는 [`deck/aksnetval-design-v6.script.md`](deck/aksnetval-design-v6.script.md)에 있습니다.
+[`deck/aksnetval-design-v7.pptx`](deck/aksnetval-design-v7.pptx)(12장, Linux 관리 VM판 결과). 네트워크 검증과 스케일링 검증을 섹션으로 나눴습니다. 이미지를 클릭하면 원본 크기로 열립니다. 발표 노트는 [`deck/aksnetval-design-v7.script.md`](deck/aksnetval-design-v7.script.md)에 있습니다. 이전 순서(8장)는 [`deck/aksnetval-design-v6.pptx`](deck/aksnetval-design-v6.pptx)에 남겨 두었습니다.
+
+### 공통
 
 #### 1. 검증 샘플 구성 — Private AKS · NSG · Istio · NetworkPolicy
 
-<a href="deck/aksnetval-design-v6_render/slide_01.png"><img src="deck/aksnetval-design-v6_render/slide_01.png" alt="슬라이드 1" width="800"></a>
+<a href="deck/aksnetval-design-v7_render/slide_01.png"><img src="deck/aksnetval-design-v7_render/slide_01.png" alt="슬라이드 1" width="800"></a>
 
-#### 2. 검증 매트릭스 — T1~T23, 차단 테스트마다 허용 대조군
+### 01 네트워크 검증 (T1~T11 · T14~T23)
 
-<a href="deck/aksnetval-design-v6_render/slide_02.png"><img src="deck/aksnetval-design-v6_render/slide_02.png" alt="슬라이드 2" width="800"></a>
+#### 2. 01 네트워크 검증 (섹션)
 
-#### 3. 스케일링 검증 — HPA 축소 속도와 영역 균형
+<a href="deck/aksnetval-design-v7_render/slide_02.png"><img src="deck/aksnetval-design-v7_render/slide_02.png" alt="슬라이드 2" width="800"></a>
 
-<a href="deck/aksnetval-design-v6_render/slide_03.png"><img src="deck/aksnetval-design-v6_render/slide_03.png" alt="슬라이드 3" width="800"></a>
+#### 3. 네트워크 검증 매트릭스 — 22건, 차단 테스트마다 허용 대조군
+
+<a href="deck/aksnetval-design-v7_render/slide_03.png"><img src="deck/aksnetval-design-v7_render/slide_03.png" alt="슬라이드 3" width="800"></a>
 
 #### 4. 결과 ① 네트워크 통제 — T1~T11·T14 13건 모두 PASS
 
-<a href="deck/aksnetval-design-v6_render/slide_04.png"><img src="deck/aksnetval-design-v6_render/slide_04.png" alt="슬라이드 4" width="800"></a>
+<a href="deck/aksnetval-design-v7_render/slide_04.png"><img src="deck/aksnetval-design-v7_render/slide_04.png" alt="슬라이드 4" width="800"></a>
 
 #### 5. PE egress 분리 — bff별 전용 PE만 허용, 기본 egress 유지
 
-<a href="deck/aksnetval-design-v6_render/slide_05.png"><img src="deck/aksnetval-design-v6_render/slide_05.png" alt="슬라이드 5" width="800"></a>
+<a href="deck/aksnetval-design-v7_render/slide_05.png"><img src="deck/aksnetval-design-v7_render/slide_05.png" alt="슬라이드 5" width="800"></a>
 
-#### 6. 결과 ② 스케일링 — HPA 1분에 1개 축소, 영역 2/2/2 확장
+#### 6. 네트워크 결과 정리 — 22 PASS, PRD 시사점과 남은 한계
 
-<a href="deck/aksnetval-design-v6_render/slide_06.png"><img src="deck/aksnetval-design-v6_render/slide_06.png" alt="슬라이드 6" width="800"></a>
+<a href="deck/aksnetval-design-v7_render/slide_06.png"><img src="deck/aksnetval-design-v7_render/slide_06.png" alt="슬라이드 6" width="800"></a>
 
-#### 7. 결과 ③ PRD 권장 YAML — 강제 분산 2/2/2, minReplicas 3 축소 1/1/1
+### 02 스케일링 검증 (T12~T13b)
 
-<a href="deck/aksnetval-design-v6_render/slide_07.png"><img src="deck/aksnetval-design-v6_render/slide_07.png" alt="슬라이드 7" width="800"></a>
+#### 7. 02 스케일링 검증 (섹션)
 
-#### 8. 결과 정리 — 26 PASS + T12b INFO, PRD 시사점과 남은 한계
+<a href="deck/aksnetval-design-v7_render/slide_07.png"><img src="deck/aksnetval-design-v7_render/slide_07.png" alt="슬라이드 7" width="800"></a>
 
-<a href="deck/aksnetval-design-v6_render/slide_08.png"><img src="deck/aksnetval-design-v6_render/slide_08.png" alt="슬라이드 8" width="800"></a>
+#### 8. 스케일링 검증 매트릭스 — T12~T13b, 판정 규칙
+
+<a href="deck/aksnetval-design-v7_render/slide_08.png"><img src="deck/aksnetval-design-v7_render/slide_08.png" alt="슬라이드 8" width="800"></a>
+
+#### 9. 스케일링 검증 — HPA 축소 속도와 영역 균형
+
+<a href="deck/aksnetval-design-v7_render/slide_09.png"><img src="deck/aksnetval-design-v7_render/slide_09.png" alt="슬라이드 9" width="800"></a>
+
+#### 10. 결과 ② 스케일링 — HPA 1분에 1개 축소, 영역 2/2/2 확장
+
+<a href="deck/aksnetval-design-v7_render/slide_10.png"><img src="deck/aksnetval-design-v7_render/slide_10.png" alt="슬라이드 10" width="800"></a>
+
+#### 11. 결과 ③ PRD 권장 YAML — 강제 분산 2/2/2, minReplicas 3 축소 1/1/1
+
+<a href="deck/aksnetval-design-v7_render/slide_11.png"><img src="deck/aksnetval-design-v7_render/slide_11.png" alt="슬라이드 11" width="800"></a>
+
+#### 12. 스케일링 결과 정리 — 4 PASS + T12b INFO, 전체 26 PASS
+
+<a href="deck/aksnetval-design-v7_render/slide_12.png"><img src="deck/aksnetval-design-v7_render/slide_12.png" alt="슬라이드 12" width="800"></a>
 
 ## 검증 구성
 
